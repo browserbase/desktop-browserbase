@@ -1,0 +1,650 @@
+/* Chrome UI Styles - Matching Chrome Stable v130+ */
+
+:root {
+  /* Chrome v130+ color palette - exact values from Chrome DevTools */
+  --chrome-bg: #DEE1E6;
+  --chrome-tab-bg: #DEE1E6;
+  --chrome-active-tab: #FFFFFF;
+  --chrome-inactive-tab: transparent;
+  --chrome-hover-tab: rgba(0, 0, 0, 0.06);
+  --chrome-url-bar-bg: #F1F3F4;
+  --chrome-url-bar-focus: #FFFFFF;
+  --chrome-accent: #1A73E8;
+  --chrome-text: #202124;
+  --chrome-text-secondary: #5F6368;
+  --chrome-border: #DADCE0;
+  --chrome-separator: #E8EAED;
+  --chrome-close-hover: #E81123;
+
+  /* Spacing - matching Chrome v130+ exactly (measured from actual Chrome) */
+  --tab-height: 40px;
+  --nav-bar-height: 40px;
+  --bookmarks-bar-height: 28px;
+  --title-bar-height: 0px;
+  --url-bar-radius: 20px;
+  --url-bar-height: 32px;
+
+  /* Typography - Chrome uses system fonts */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-small: 11px;
+  --font-size-normal: 12px;
+  --font-size-url: 14px;
+}
+
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-family);
+  font-size: var(--font-size-normal);
+  color: var(--chrome-text);
+  background: var(--chrome-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Title Bar */
+.title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--tab-height);
+  background: var(--chrome-bg);
+  -webkit-app-region: drag;
+  position: relative;
+}
+
+.title-bar-drag-region {
+  flex: 1;
+  height: 100%;
+}
+
+.window-controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-btn {
+  width: 46px;
+  height: var(--tab-height);
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.1s;
+}
+
+.window-control-btn:hover {
+  background: var(--chrome-hover-tab);
+}
+
+.window-control-btn.close:hover {
+  background: var(--chrome-close-hover);
+  color: white;
+}
+
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  align-items: flex-end;
+  height: var(--tab-height);
+  background: var(--chrome-bg);
+  padding: 0 8px;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+/* macOS: Add padding for traffic lights */
+.platform-darwin .tab-bar {
+  padding-left: 78px; /* Space for traffic lights */
+}
+
+/* macOS: Hide custom window controls (use native traffic lights) */
+.platform-darwin .window-controls {
+  display: none;
+}
+
+.tabs-container {
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-app-region: no-drag;
+  height: 100%;
+}
+
+.tabs-container::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  min-width: 40px;
+  max-width: 240px;
+  width: 240px;
+  height: 34px;
+  padding: 0 8px 0 12px;
+  margin-right: 0;
+  margin-top: auto;
+  margin-bottom: 0;
+  background: var(--chrome-inactive-tab);
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+  position: relative;
+  flex-shrink: 1;
+  flex-grow: 0;
+  gap: 8px;
+}
+
+.tab:hover:not(.active) {
+  background: var(--chrome-hover-tab);
+}
+
+.tab.active {
+  background: var(--chrome-active-tab);
+  z-index: 1;
+}
+
+.tab-favicon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-normal);
+  color: var(--chrome-text);
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.1s, background-color 0.1s;
+}
+
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: var(--chrome-border);
+}
+
+.new-tab-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-left: 4px;
+  margin-bottom: 3px;
+  -webkit-app-region: no-drag;
+  transition: background-color 0.1s;
+  align-self: flex-end;
+  flex-shrink: 0;
+}
+
+.new-tab-btn:hover {
+  background: var(--chrome-hover-tab);
+}
+
+.tab-bar-spacer {
+  flex: 1;
+  -webkit-app-region: drag;
+  min-width: 32px;
+}
+
+/* Navigation Bar */
+.navigation-bar {
+  display: flex;
+  align-items: center;
+  height: var(--nav-bar-height);
+  padding: 0 4px;
+  background: var(--chrome-active-tab);
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.nav-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.nav-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.1s;
+  flex-shrink: 0;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: var(--chrome-url-bar-bg);
+}
+
+.nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.url-bar-container {
+  flex: 1;
+  min-width: 100px;
+  max-width: none;
+  margin: 0 8px;
+}
+
+.url-input {
+  width: 100%;
+  height: var(--url-bar-height);
+  padding: 0 16px;
+  background: var(--chrome-url-bar-bg);
+  border-radius: var(--url-bar-radius);
+  border: 1px solid transparent;
+  font-size: var(--font-size-url);
+  color: var(--chrome-text);
+  outline: none;
+  transition: background-color 0.1s, border-color 0.1s, box-shadow 0.1s;
+}
+
+.url-input:focus {
+  background: var(--chrome-url-bar-focus);
+  border-color: var(--chrome-border);
+  box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28);
+}
+
+.url-input::placeholder {
+  color: var(--chrome-text-secondary);
+}
+
+.url-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-left: 4px;
+  transition: background-color 0.1s;
+}
+
+.url-action-btn:hover {
+  background: var(--chrome-border);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.menu-btn {
+  margin-left: 4px;
+}
+
+/* Bookmarks Bar */
+.bookmarks-bar {
+  display: flex;
+  align-items: center;
+  height: var(--bookmarks-bar-height);
+  padding: 0 8px;
+  background: var(--chrome-active-tab);
+  border-bottom: 1px solid var(--chrome-separator);
+  overflow: hidden;
+}
+
+.bookmarks-bar.hidden {
+  display: none;
+}
+
+.bookmarks-placeholder {
+  color: var(--chrome-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.bookmarks-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.bookmarks-container::-webkit-scrollbar {
+  display: none;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--chrome-text);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+  transition: background-color 0.1s;
+}
+
+.bookmark-item:hover {
+  background: var(--chrome-url-bar-bg);
+}
+
+.bookmark-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
+/* Content Area */
+.content-area {
+  flex: 1;
+  position: relative;
+  background: white;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  z-index: 100;
+}
+
+.loading-overlay.hidden {
+  display: none;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--chrome-border);
+  border-top-color: var(--chrome-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay p {
+  color: var(--chrome-text-secondary);
+  font-size: var(--font-size-url);
+}
+
+.live-view-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: none;
+  background: white;
+}
+
+/* Downloads Bar */
+.downloads-bar {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 8px;
+  background: var(--chrome-active-tab);
+  border-top: 1px solid var(--chrome-separator);
+}
+
+.downloads-bar.hidden {
+  display: none;
+}
+
+.downloads-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.download-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--chrome-url-bar-bg);
+  border-radius: 4px;
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.download-icon {
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  color: var(--chrome-accent);
+}
+
+.download-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.download-filename {
+  font-size: var(--font-size-normal);
+  color: var(--chrome-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-status {
+  font-size: var(--font-size-small);
+  color: var(--chrome-text-secondary);
+}
+
+.download-progress {
+  height: 2px;
+  background: var(--chrome-border);
+  border-radius: 1px;
+  margin-top: 2px;
+  overflow: hidden;
+}
+
+.download-progress-bar {
+  height: 100%;
+  background: var(--chrome-accent);
+  transition: width 0.3s;
+}
+
+.close-downloads-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--chrome-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-left: 8px;
+  transition: background-color 0.1s;
+}
+
+.close-downloads-btn:hover {
+  background: var(--chrome-border);
+}
+
+/* Status Bar */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #FFF3CD;
+  border-top: 1px solid #FFEAA7;
+  color: #856404;
+  font-size: var(--font-size-normal);
+}
+
+.status-bar.hidden {
+  display: none;
+}
+
+.status-bar.error {
+  background: #F8D7DA;
+  border-top-color: #F5C6CB;
+  color: #721C24;
+}
+
+.close-status-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  opacity: 0.6;
+  transition: opacity 0.1s;
+}
+
+.close-status-btn:hover {
+  opacity: 1;
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--chrome-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--chrome-text-secondary);
+}
+
+/* Focus Styles */
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--chrome-accent);
+  outline-offset: 2px;
+}
+
+/* Utility Classes */
+.hidden {
+  display: none !important;
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chrome-bg: #202124;
+    --chrome-tab-bg: #202124;
+    --chrome-active-tab: #323639;
+    --chrome-inactive-tab: #202124;
+    --chrome-hover-tab: #3C4043;
+    --chrome-url-bar-bg: #303134;
+    --chrome-url-bar-focus: #323639;
+    --chrome-text: #E8EAED;
+    --chrome-text-secondary: #9AA0A6;
+    --chrome-border: #5F6368;
+    --chrome-separator: #3C4043;
+  }
+
+  .content-area {
+    background: #202124;
+  }
+
+  .loading-overlay {
+    background: #202124;
+  }
+
+  .status-bar {
+    background: #3C4043;
+    border-top-color: #5F6368;
+    color: #E8EAED;
+  }
+
+  .status-bar.error {
+    background: #5C2B29;
+    border-top-color: #8B4A4A;
+    color: #F8D7DA;
+  }
+}

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.browserbase.com wss://*.browserbase.com; frame-src https://*.browserbase.com https://www.browserbase.com; img-src 'self' data: https: http:; connect-src 'self' https://*.browserbase.com wss://*.browserbase.com wss://connect.browserbase.com https://www.google.com;">
+  <title>Desktop Browserbase</title>
+  <link rel="stylesheet" href="./styles/chrome.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Combined Title Bar and Tab Bar (like real Chrome) -->
+    <div id="tab-bar" class="tab-bar">
+      <div id="tabs-container" class="tabs-container">
+        <!-- Tabs will be dynamically inserted here -->
+      </div>
+      <button id="btn-new-tab" class="new-tab-btn" title="New tab (Ctrl+T)">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <line x1="6" y1="0" x2="6" y2="12" stroke="currentColor" stroke-width="2"/>
+          <line x1="0" y1="6" x2="12" y2="6" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+      <div class="tab-bar-spacer"></div>
+      <div class="window-controls">
+        <button id="btn-minimize" class="window-control-btn minimize" title="Minimize">
+          <svg width="10" height="1" viewBox="0 0 10 1">
+            <rect width="10" height="1" fill="currentColor"/>
+          </svg>
+        </button>
+        <button id="btn-maximize" class="window-control-btn maximize" title="Maximize">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <rect width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/>
+          </svg>
+        </button>
+        <button id="btn-close" class="window-control-btn close" title="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div id="navigation-bar" class="navigation-bar">
+      <div class="nav-buttons">
+        <button id="btn-back" class="nav-btn" title="Go back (Alt+Left)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M19 12H5M5 12L11 6M5 12L11 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button id="btn-forward" class="nav-btn" title="Go forward (Alt+Right)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button id="btn-reload" class="nav-btn" title="Reload (Ctrl+R)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M21 4V10H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19.64 14.75C19.06 16.57 17.85 18.13 16.2 19.16C14.56 20.19 12.59 20.62 10.66 20.37C8.73 20.12 6.94 19.21 5.58 17.79C4.22 16.37 3.37 14.53 3.16 12.55C2.96 10.57 3.42 8.6 4.46 6.96C5.49 5.31 7.05 4.1 8.87 3.52C10.69 2.94 12.66 3.03 14.42 3.77C16.18 4.51 17.62 5.85 18.5 7.55L21 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="url-bar-container">
+        <input type="text" id="url-input" class="url-input" placeholder="Search Google or type a URL" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="nav-actions">
+        <button id="btn-bookmarks" class="nav-btn" title="Bookmarks (Ctrl+B)">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M4 2h8a1 1 0 011 1v11l-5-3-5 3V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          </svg>
+        </button>
+        <button id="btn-menu" class="nav-btn" title="Menu">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
+            <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+            <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Bookmarks Bar (hidden by default) -->
+    <div id="bookmarks-bar" class="bookmarks-bar hidden">
+      <div class="bookmarks-container">
+        <!-- Bookmarks will be dynamically inserted here -->
+      </div>
+    </div>
+
+    <!-- Content Area -->
+    <div id="content-area" class="content-area">
+      <webview id="live-view-frame" class="live-view-frame" partition="persist:browserbase" allowpopups></webview>
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p>Connecting to Browserbase...</p>
+      </div>
+    </div>
+
+    <!-- Downloads Bar (hidden by default) -->
+    <div id="downloads-bar" class="downloads-bar hidden">
+      <div id="downloads-container" class="downloads-container">
+        <!-- Downloads will be dynamically inserted here -->
+      </div>
+      <button id="btn-close-downloads" class="close-downloads-btn" title="Close downloads bar">
+        <svg width="14" height="14" viewBox="0 0 14 14">
+          <line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" stroke-width="2"/>
+          <line x1="12" y1="2" x2="2" y2="12" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

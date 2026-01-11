@@ -1,0 +1,214 @@
+/* Additional component-specific styles */
+
+/* Tab animations */
+.tab {
+  animation: tabSlideIn 0.15s ease-out;
+}
+
+@keyframes tabSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tab close animation */
+.tab.closing {
+  animation: tabSlideOut 0.15s ease-in forwards;
+}
+
+@keyframes tabSlideOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* URL bar typing indicator */
+.url-bar.loading::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--chrome-accent), transparent);
+  animation: loadingProgress 1.5s ease-in-out infinite;
+}
+
+@keyframes loadingProgress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Navigation button ripple effect */
+.nav-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-btn::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.3s, height 0.3s;
+}
+
+.nav-btn:active::after {
+  width: 100%;
+  height: 100%;
+}
+
+/* Download item animations */
+.download-item {
+  animation: downloadSlideIn 0.2s ease-out;
+}
+
+@keyframes downloadSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Content area transitions */
+.live-view-frame {
+  transition: opacity 0.2s ease-in-out;
+}
+
+.live-view-frame.loading {
+  opacity: 0.5;
+}
+
+/* Status bar animations */
+.status-bar {
+  animation: statusSlideUp 0.2s ease-out;
+}
+
+@keyframes statusSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Tooltip styles */
+[title] {
+  position: relative;
+}
+
+/* Focus ring improvements */
+.tab:focus-visible,
+.bookmark-item:focus-visible {
+  outline: 2px solid var(--chrome-accent);
+  outline-offset: -2px;
+}
+
+/* Loading states */
+.btn-loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.btn-loading::after {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+/* Error state for URL bar */
+.url-bar.error {
+  border-color: #E81123;
+  background: #FFF5F5;
+}
+
+/* Drag and drop tab indicator */
+.tab.drag-over {
+  border-left: 2px solid var(--chrome-accent);
+}
+
+.tab.dragging {
+  opacity: 0.5;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .tab {
+    min-width: 80px;
+    max-width: 150px;
+  }
+
+  .tab-title {
+    font-size: 11px;
+  }
+
+  .url-bar-container {
+    margin: 0 4px;
+  }
+
+  .bookmark-item span {
+    display: none;
+  }
+
+  .bookmark-item {
+    padding: 4px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --chrome-border: #000000;
+    --chrome-text: #000000;
+    --chrome-text-secondary: #333333;
+  }
+
+  .tab.active {
+    border: 2px solid #000000;
+  }
+
+  .url-bar:focus-within {
+    border: 2px solid #000000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

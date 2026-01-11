@@ -1,0 +1,41 @@
+appId: com.browserbase.desktop
+productName: Desktop Browserbase
+copyright: Copyright © 2024
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - assets/**/*
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icons/icon.ico
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: assets/icons/icon.icns
+  category: public.app-category.productivity
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: assets/icons
+  category: Network
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

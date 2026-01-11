@@ -1,0 +1,51 @@
+{
+  "name": "desktop-browserbase",
+  "version": "1.0.0",
+  "description": "A Chrome-like desktop browser powered by Browserbase remote browsers",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "npm run build:main && npm run build:renderer && npm run copy-assets",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "esbuild src/renderer/app.ts --bundle --outfile=dist/renderer/app.js --platform=browser --target=es2020",
+    "copy-assets": "cp src/renderer/index.html dist/renderer/ && cp -r src/renderer/styles dist/renderer/",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^24.9.1",
+    "esbuild": "^0.27.2",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "playwright-core": "^1.40.0"
+  },
+  "build": {
+    "appId": "com.browserbase.desktop",
+    "productName": "Desktop Browserbase",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icons/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icons/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icons"
+    }
+  }
+}
