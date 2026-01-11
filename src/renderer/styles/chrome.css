@@ -335,6 +335,64 @@ html, body {
   margin-left: 4px;
 }
 
+/* Dropdown Menu */
+.nav-actions {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 240px;
+  background: var(--chrome-active-tab);
+  border: 1px solid var(--chrome-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  padding: 8px 0;
+  z-index: 1000;
+}
+
+.dropdown-menu.hidden {
+  display: none;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-normal);
+  color: var(--chrome-text);
+  text-align: left;
+  transition: background-color 0.1s;
+}
+
+.dropdown-item:hover {
+  background: var(--chrome-url-bar-bg);
+}
+
+.dropdown-label {
+  flex: 1;
+}
+
+.dropdown-shortcut {
+  color: var(--chrome-text-secondary);
+  font-size: var(--font-size-small);
+  margin-left: 16px;
+}
+
+.dropdown-separator {
+  height: 1px;
+  background: var(--chrome-separator);
+  margin: 8px 0;
+}
+
 /* Bookmarks Bar */
 .bookmarks-bar {
   display: flex;

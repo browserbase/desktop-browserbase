@@ -102,6 +102,13 @@ export const IPC_CHANNELS = {
   // Debug URL (Browserbase live view)
   GET_DEBUG_URL: "debug:get-url",
   DEBUG_URL_CHANGED: "debug:url-changed",
+
+  // Menu actions
+  OPEN_DEVTOOLS: "menu:open-devtools",
+  TOGGLE_FULLSCREEN: "menu:toggle-fullscreen",
+  ZOOM_IN: "menu:zoom-in",
+  ZOOM_OUT: "menu:zoom-out",
+  ZOOM_RESET: "menu:zoom-reset",
 } as const;
 
 // App settings

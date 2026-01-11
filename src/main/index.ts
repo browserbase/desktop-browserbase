@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, session, nativeTheme, dialog } from "electron";
+import { app, BrowserWindow, globalShortcut, session, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { sessionManager } from "./session";
@@ -6,6 +6,7 @@ import { setupIpcHandlers, removeIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../shared/types";
 
 let mainWindow: BrowserWindow | null = null;
+let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Window state persistence
 interface WindowState {
@@ -65,6 +66,178 @@ function validateEnvironment(): boolean {
   return true;
 }
 
+function createApplicationMenu(): void {
+  const isMac = process.platform === "darwin";
+
+  const template: MenuItemConstructorOptions[] = [
+    // App menu (macOS only)
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" as const },
+              { type: "separator" as const },
+              { role: "services" as const },
+              { type: "separator" as const },
+              { role: "hide" as const },
+              { role: "hideOthers" as const },
+              { role: "unhide" as const },
+              { type: "separator" as const },
+              { role: "quit" as const },
+            ],
+          },
+        ]
+      : []),
+    // File menu
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Tab",
+          accelerator: "CmdOrCtrl+T",
+          click: () => sessionManager.newTab(),
+        },
+        {
+          label: "Close Tab",
+          accelerator: "CmdOrCtrl+W",
+          click: () => {
+            const tabs = sessionManager.getTabs();
+            const activeTab = tabs.find((t) => t.active);
+            if (activeTab && tabs.length > 1) {
+              sessionManager.closeTab(activeTab.id);
+            } else if (mainWindow) {
+              mainWindow.close();
+            }
+          },
+        },
+        { type: "separator" as const },
+        isMac ? { role: "close" as const } : { role: "quit" as const },
+      ],
+    },
+    // Edit menu
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" as const },
+        { role: "redo" as const },
+        { type: "separator" as const },
+        { role: "cut" as const },
+        { role: "copy" as const },
+        { role: "paste" as const },
+        ...(isMac
+          ? [
+              { role: "pasteAndMatchStyle" as const },
+              { role: "delete" as const },
+              { role: "selectAll" as const },
+            ]
+          : [
+              { role: "delete" as const },
+              { type: "separator" as const },
+              { role: "selectAll" as const },
+            ]),
+      ],
+    },
+    // View menu
+    {
+      label: "View",
+      submenu: [
+        {
+          label: "Reload Page",
+          accelerator: "CmdOrCtrl+R",
+          click: () => sessionManager.reload(),
+        },
+        { type: "separator" as const },
+        { role: "resetZoom" as const },
+        { role: "zoomIn" as const },
+        { role: "zoomOut" as const },
+        { type: "separator" as const },
+        { role: "togglefullscreen" as const },
+        { type: "separator" as const },
+        {
+          label: "Toggle Bookmarks Bar",
+          accelerator: "CmdOrCtrl+Shift+B",
+          click: () => mainWindow?.webContents.send(IPC_CHANNELS.BOOKMARKS_TOGGLE),
+        },
+        { type: "separator" as const },
+        {
+          label: "Developer Tools",
+          accelerator: isMac ? "Cmd+Option+I" : "Ctrl+Shift+I",
+          click: () => mainWindow?.webContents.openDevTools(),
+        },
+      ],
+    },
+    // Navigate menu
+    {
+      label: "Navigate",
+      submenu: [
+        {
+          label: "Back",
+          accelerator: "Alt+Left",
+          click: () => sessionManager.goBack(),
+        },
+        {
+          label: "Forward",
+          accelerator: "Alt+Right",
+          click: () => sessionManager.goForward(),
+        },
+        { type: "separator" as const },
+        {
+          label: "Next Tab",
+          accelerator: "CmdOrCtrl+Tab",
+          click: () => {
+            const tabs = sessionManager.getTabs();
+            const activeIndex = tabs.findIndex((t) => t.active);
+            const nextIndex = (activeIndex + 1) % tabs.length;
+            if (tabs[nextIndex]) {
+              sessionManager.switchTab(tabs[nextIndex].id);
+            }
+          },
+        },
+        {
+          label: "Previous Tab",
+          accelerator: "CmdOrCtrl+Shift+Tab",
+          click: () => {
+            const tabs = sessionManager.getTabs();
+            const activeIndex = tabs.findIndex((t) => t.active);
+            const prevIndex = activeIndex === 0 ? tabs.length - 1 : activeIndex - 1;
+            if (tabs[prevIndex]) {
+              sessionManager.switchTab(tabs[prevIndex].id);
+            }
+          },
+        },
+      ],
+    },
+    // Window menu
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" as const },
+        { role: "zoom" as const },
+        ...(isMac
+          ? [{ type: "separator" as const }, { role: "front" as const }]
+          : [{ role: "close" as const }]),
+      ],
+    },
+    // Help menu
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "About Browserbase",
+          click: async () => {
+            const { shell } = require("electron");
+            await shell.openExternal("https://browserbase.com");
+          },
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 async function createWindow(): Promise<void> {
   const windowState = loadWindowState();
 
@@ -97,7 +270,23 @@ async function createWindow(): Promise<void> {
   }
 
   // Save window state on resize/move
-  mainWindow.on("resize", () => mainWindow && saveWindowState(mainWindow));
+  mainWindow.on("resize", () => {
+    if (mainWindow) {
+      saveWindowState(mainWindow);
+      // Debounce viewport updates to avoid too many CDP calls during drag
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      resizeTimeout = setTimeout(() => {
+        if (mainWindow) {
+          const bounds = mainWindow.getContentBounds();
+          const chromeUIHeight = 76; // Tab bar (36px) + nav bar (40px)
+          const viewportHeight = Math.max(400, bounds.height - chromeUIHeight);
+          sessionManager.updateViewport(bounds.width, viewportHeight);
+        }
+      }, 150); // 150ms debounce
+    }
+  });
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("close", () => mainWindow && saveWindowState(mainWindow));
 
@@ -211,6 +400,17 @@ function registerShortcuts(): void {
     }
   });
 
+  // Ctrl+Shift+I / Cmd+Option+I - DevTools
+  const devToolsAccelerator = process.platform === "darwin" ? "Command+Option+I" : "Control+Shift+I";
+  globalShortcut.register(devToolsAccelerator, () => {
+    mainWindow?.webContents.openDevTools();
+  });
+
+  // F12 - DevTools (common shortcut)
+  globalShortcut.register("F12", () => {
+    mainWindow?.webContents.openDevTools();
+  });
+
   // Ctrl+1-9 - Switch to specific tab
   for (let i = 1; i <= 9; i++) {
     globalShortcut.register(`CommandOrControl+${i}`, () => {
@@ -248,6 +448,7 @@ app.whenReady().then(async () => {
     return;
   }
 
+  createApplicationMenu();
   setupContentSecurityPolicy();
   await createWindow();
 

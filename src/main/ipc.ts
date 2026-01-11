@@ -104,6 +104,29 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.on(IPC_CHANNELS.BOOKMARKS_TOGGLE, () => {
     mainWindow.webContents.send(IPC_CHANNELS.BOOKMARKS_TOGGLE);
   });
+
+  // Menu action handlers
+  ipcMain.on(IPC_CHANNELS.OPEN_DEVTOOLS, () => {
+    mainWindow.webContents.openDevTools();
+  });
+
+  ipcMain.on(IPC_CHANNELS.TOGGLE_FULLSCREEN, () => {
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  });
+
+  ipcMain.on(IPC_CHANNELS.ZOOM_IN, () => {
+    const currentZoom = mainWindow.webContents.getZoomLevel();
+    mainWindow.webContents.setZoomLevel(currentZoom + 0.5);
+  });
+
+  ipcMain.on(IPC_CHANNELS.ZOOM_OUT, () => {
+    const currentZoom = mainWindow.webContents.getZoomLevel();
+    mainWindow.webContents.setZoomLevel(currentZoom - 0.5);
+  });
+
+  ipcMain.on(IPC_CHANNELS.ZOOM_RESET, () => {
+    mainWindow.webContents.setZoomLevel(0);
+  });
 }
 
 export function removeIpcHandlers(): void {

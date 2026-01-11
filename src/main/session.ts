@@ -25,6 +25,40 @@ export class SessionManager {
     this.mainWindow = window;
   }
 
+  async updateViewport(width: number, height: number): Promise<void> {
+    const activePage = this.getActivePage();
+    if (!activePage) {
+      console.log("[Viewport] No active page to update viewport");
+      return;
+    }
+
+    try {
+      // Get or create CDP session for the active page
+      let cdp = this.cdpSession;
+      if (!cdp) {
+        cdp = await activePage.context().newCDPSession(activePage);
+        this.cdpSession = cdp;
+      }
+
+      const deviceScaleFactor = process.platform === "darwin" ? 2 : 1;
+
+      console.log(`[Viewport] Updating viewport to ${width}x${height} (scale: ${deviceScaleFactor})`);
+
+      await cdp.send("Emulation.setDeviceMetricsOverride", {
+        width,
+        height,
+        deviceScaleFactor,
+        mobile: false,
+      });
+
+      console.log("[Viewport] Viewport updated successfully");
+    } catch (error) {
+      console.error("[Viewport] Failed to update viewport:", error);
+      // Try to recreate CDP session if it failed
+      this.cdpSession = null;
+    }
+  }
+
   async initialize(): Promise<BrowserbaseSession> {
     try {
       // Calculate viewport size based on window content area
@@ -316,6 +350,11 @@ export class SessionManager {
       const newPage = await this.context.newPage();
       const pages = this.context.pages();
       this.activeTabIndex = pages.indexOf(newPage);
+
+      // Navigate to Google like the initial tab
+      const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
+      await newPage.goto(defaultUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+
       await this.syncTabs();
 
       // Wait a moment for the page to register, then get the updated debug URL

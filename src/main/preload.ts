@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   maximizeWindow: () => ipcRenderer.send(IPC_CHANNELS.WINDOW_MAXIMIZE),
   closeWindow: () => ipcRenderer.send(IPC_CHANNELS.WINDOW_CLOSE),
 
+  // Menu actions
+  openDevTools: () => ipcRenderer.send(IPC_CHANNELS.OPEN_DEVTOOLS),
+  toggleFullscreen: () => ipcRenderer.send(IPC_CHANNELS.TOGGLE_FULLSCREEN),
+  zoomIn: () => ipcRenderer.send(IPC_CHANNELS.ZOOM_IN),
+  zoomOut: () => ipcRenderer.send(IPC_CHANNELS.ZOOM_OUT),
+  zoomReset: () => ipcRenderer.send(IPC_CHANNELS.ZOOM_RESET),
+
   // Bookmarks
   toggleBookmarks: () => ipcRenderer.send(IPC_CHANNELS.BOOKMARKS_TOGGLE),
 
@@ -105,6 +112,11 @@ declare global {
       minimizeWindow: () => void;
       maximizeWindow: () => void;
       closeWindow: () => void;
+      openDevTools: () => void;
+      toggleFullscreen: () => void;
+      zoomIn: () => void;
+      zoomOut: () => void;
+      zoomReset: () => void;
       toggleBookmarks: () => void;
       onTabsUpdated: (callback: (tabs: TabInfo[]) => void) => () => void;
       onUrlChanged: (callback: (url: string) => void) => () => void;
