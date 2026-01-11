@@ -25,24 +25,32 @@ export class SessionManager {
     this.mainWindow = window;
   }
 
+  // Store current viewport dimensions for applying to new tabs
+  private currentViewportWidth: number = 1440;
+  private currentViewportHeight: number = 900;
+
   async updateViewport(width: number, height: number): Promise<void> {
+    // Store dimensions for new tabs
+    this.currentViewportWidth = width;
+    this.currentViewportHeight = height;
+
     const activePage = this.getActivePage();
     if (!activePage) {
       console.log("[Viewport] No active page to update viewport");
       return;
     }
 
+    await this.applyViewportToPage(activePage, width, height);
+  }
+
+  private async applyViewportToPage(page: Page, width: number, height: number): Promise<void> {
     try {
-      // Get or create CDP session for the active page
-      let cdp = this.cdpSession;
-      if (!cdp) {
-        cdp = await activePage.context().newCDPSession(activePage);
-        this.cdpSession = cdp;
-      }
+      // Always create a new CDP session for the specific page
+      const cdp = await page.context().newCDPSession(page);
 
       const deviceScaleFactor = process.platform === "darwin" ? 2 : 1;
 
-      console.log(`[Viewport] Updating viewport to ${width}x${height} (scale: ${deviceScaleFactor})`);
+      console.log(`[Viewport] Applying viewport ${width}x${height} (scale: ${deviceScaleFactor}) to page: ${page.url()}`);
 
       await cdp.send("Emulation.setDeviceMetricsOverride", {
         width,
@@ -51,11 +59,18 @@ export class SessionManager {
         mobile: false,
       });
 
-      console.log("[Viewport] Viewport updated successfully");
+      console.log("[Viewport] Viewport applied successfully");
     } catch (error) {
-      console.error("[Viewport] Failed to update viewport:", error);
-      // Try to recreate CDP session if it failed
-      this.cdpSession = null;
+      console.error("[Viewport] Failed to apply viewport:", error);
+    }
+  }
+
+  async applyViewportToAllPages(): Promise<void> {
+    if (!this.context) return;
+
+    const pages = this.context.pages();
+    for (const page of pages) {
+      await this.applyViewportToPage(page, this.currentViewportWidth, this.currentViewportHeight);
     }
   }
 
@@ -66,21 +81,27 @@ export class SessionManager {
       const windowBounds = this.mainWindow?.getContentBounds();
       const chromeUIHeight = 76; // 36 (tab bar) + 40 (nav bar)
 
-      // Use a larger default viewport for better desktop experience
-      const defaultWidth = 1728;
-      const defaultHeight = 1440;
+      // Use actual window size, with reasonable defaults
+      const defaultWidth = 1440;
+      const defaultHeight = 900;
 
       const contentWidth = windowBounds?.width || defaultWidth;
       const contentHeight = windowBounds
-        ? Math.max(600, windowBounds.height - chromeUIHeight)
+        ? Math.max(400, windowBounds.height - chromeUIHeight)
         : defaultHeight - chromeUIHeight;
 
+      // Store for later use with new tabs
+      this.currentViewportWidth = contentWidth;
+      this.currentViewportHeight = contentHeight;
+
+      // For session creation, use larger viewport to avoid issues - we'll override with CDP later
       const viewportWidth = Math.max(2560, contentWidth);
       const viewportHeight = Math.max(1440, contentHeight);
 
       console.log("Window content bounds:", windowBounds);
       console.log(`Chrome UI height: ${chromeUIHeight}px`);
-      console.log(`Creating session with viewport: ${viewportWidth}x${viewportHeight}`);
+      console.log(`Actual viewport to use: ${contentWidth}x${contentHeight}`);
+      console.log(`Creating session with initial viewport: ${viewportWidth}x${viewportHeight} (will override with CDP)`);
 
       // Create a new Browserbase session with viewport matching our window
       // Use deviceScaleFactor of 2 for Retina displays
@@ -158,6 +179,10 @@ export class SessionManager {
       // Navigate to default URL
       const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
       await this.navigateTo(defaultUrl);
+
+      // Apply viewport override via CDP to match actual window size
+      console.log(`[Viewport] Applying initial viewport: ${this.currentViewportWidth}x${this.currentViewportHeight}`);
+      await this.applyViewportToAllPages();
 
     } catch (error) {
       console.error("Failed to connect to browser:", error);
@@ -350,6 +375,10 @@ export class SessionManager {
       const newPage = await this.context.newPage();
       const pages = this.context.pages();
       this.activeTabIndex = pages.indexOf(newPage);
+
+      // Apply viewport to the new tab
+      console.log(`[Viewport] Applying viewport to new tab: ${this.currentViewportWidth}x${this.currentViewportHeight}`);
+      await this.applyViewportToPage(newPage, this.currentViewportWidth, this.currentViewportHeight);
 
       // Navigate to Google like the initial tab
       const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
