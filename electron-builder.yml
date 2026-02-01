@@ -23,12 +23,15 @@ mac:
       arch:
         - x64
         - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
   icon: assets/icons/icon.icns
   category: public.app-category.productivity
+  identity: null
   hardenedRuntime: false
   gatekeeperAssess: false
-  entitlements: null
-  entitlementsInherit: null
 
 linux:
   target:

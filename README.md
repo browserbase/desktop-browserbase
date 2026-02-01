@@ -16,17 +16,21 @@ Download the latest release for your platform:
 
 ### macOS Installation
 
-Since the app is not signed with an Apple Developer certificate, macOS will block it by default. To open it:
+Since the app is not signed with an Apple Developer certificate, macOS will block it.
 
-1. Download and open the `.dmg` file
-2. Drag the app to Applications
-3. **Right-click** (or Control+click) on the app and select **"Open"**
-4. Click **"Open"** in the dialog that appears
+**If you see "app is damaged" error**, run this in Terminal:
+```bash
+xattr -cr /Applications/Desktop\ Browserbase.app
+```
 
-Alternatively, you can allow the app in System Settings:
-1. Go to **System Settings > Privacy & Security**
-2. Scroll down to find the blocked app message
-3. Click **"Open Anyway"**
+**Standard installation:**
+1. Download the `.dmg` or `.zip` file
+2. For DMG: Open and drag the app to Applications
+3. For ZIP: Extract and move to Applications
+4. **Right-click** the app and select **"Open"**
+5. Click **"Open"** in the security dialog
+
+**Alternative:** Go to **System Settings > Privacy & Security** and click **"Open Anyway"**
 
 ## Features
 
