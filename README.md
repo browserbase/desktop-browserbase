@@ -211,31 +211,6 @@ Built packages will be output to the `release/` directory.
 - **macOS builds:** Must be built on macOS (for code signing)
 - **Linux builds:** Can be built on Linux or via CI
 
-## Hosting Releases
-
-We recommend hosting releases on **GitHub Releases** for the following benefits:
-
-- Free hosting for open source projects
-- Automatic download statistics
-- Integration with GitHub Actions for automated builds
-- Easy versioning with git tags
-- CDN-backed downloads for fast, reliable access
-
-### Release Process
-
-1. Update version in `package.json`
-2. Commit changes and create a git tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-3. GitHub Actions will automatically build and create a release
-
-Alternatively, for private distribution:
-- **AWS S3 + CloudFront**: Scalable, pay-as-you-go hosting
-- **Cloudflare R2**: S3-compatible with generous free tier
-- **Your own server**: Full control over distribution
-
 ## Contributing
 
 Contributions are welcome! Please follow these steps:
