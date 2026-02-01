@@ -1,3 +1,16 @@
+/**
+ * @fileoverview Main entry point for the Desktop Browserbase Electron application.
+ *
+ * This module initializes the Electron application, creates the main browser window,
+ * sets up the application menu, registers keyboard shortcuts, and manages the
+ * application lifecycle including session initialization and cleanup.
+ *
+ * The application creates a frameless window with a custom Chrome-like UI that
+ * embeds a Browserbase remote browser session via live view.
+ *
+ * @module main/index
+ */
+
 import { app, BrowserWindow, globalShortcut, session, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
 import * as path from "path";
 import * as fs from "fs";

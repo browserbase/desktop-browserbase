@@ -2,6 +2,18 @@
 
 A high-fidelity Chrome browser interface that proxies all browsing activity through Browserbase remote browsers with advanced stealth enabled. This Electron application makes cloud browser sessions appear and behave as native desktop Chrome instances.
 
+## Download
+
+Download the latest release for your platform:
+
+| Platform | Download |
+|----------|----------|
+| Windows | [Desktop Browserbase Setup.exe](https://github.com/browserbase/desktop-browserbase/releases/latest) |
+| macOS | [Desktop Browserbase.dmg](https://github.com/browserbase/desktop-browserbase/releases/latest) |
+| Linux | [Desktop Browserbase.AppImage](https://github.com/browserbase/desktop-browserbase/releases/latest) |
+
+> **Note:** You'll need a [Browserbase](https://browserbase.com) account with API access to use this application.
+
 ## Features
 
 - **Native Chrome Experience** - Pixel-perfect Chrome v130+ UI styling
@@ -158,6 +170,80 @@ Make sure `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set before runn
 - Check your internet connection
 - Verify your API key is valid
 - Check the Browserbase status page
+
+## Building for Distribution
+
+To create distributable packages for all platforms:
+
+```bash
+# Build for your current platform
+npm run dist
+
+# Build for specific platforms (requires appropriate OS or CI)
+npm run dist -- --win      # Windows (NSIS installer)
+npm run dist -- --mac      # macOS (DMG)
+npm run dist -- --linux    # Linux (AppImage)
+```
+
+Built packages will be output to the `release/` directory.
+
+### Platform Requirements
+
+- **Windows builds:** Can be built on Windows or via CI
+- **macOS builds:** Must be built on macOS (for code signing)
+- **Linux builds:** Can be built on Linux or via CI
+
+## Hosting Releases
+
+We recommend hosting releases on **GitHub Releases** for the following benefits:
+
+- Free hosting for open source projects
+- Automatic download statistics
+- Integration with GitHub Actions for automated builds
+- Easy versioning with git tags
+- CDN-backed downloads for fast, reliable access
+
+### Release Process
+
+1. Update version in `package.json`
+2. Commit changes and create a git tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+3. GitHub Actions will automatically build and create a release
+
+Alternatively, for private distribution:
+- **AWS S3 + CloudFront**: Scalable, pay-as-you-go hosting
+- **Cloudflare R2**: S3-compatible with generous free tier
+- **Your own server**: Full control over distribution
+
+## Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes and add tests if applicable
+4. Ensure the build passes: `npm run build`
+5. Commit your changes: `git commit -m "Add my feature"`
+6. Push to the branch: `git push origin feature/my-feature`
+7. Open a Pull Request
+
+### Development Guidelines
+
+- Follow the existing code style (TypeScript, ESLint)
+- Add JSDoc comments for new public APIs
+- Test on multiple platforms when possible
+- Keep commits focused and atomic
+
+## Security
+
+This application handles sensitive credentials (API keys). Please:
+
+- Never commit `.env` files or API keys
+- Use environment variables for configuration
+- Report security vulnerabilities via GitHub Security Advisories
 
 ## License
 

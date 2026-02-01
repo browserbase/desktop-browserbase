@@ -1,7 +1,27 @@
+/**
+ * @fileoverview Preload script that bridges renderer and main processes.
+ *
+ * This script runs in a privileged context before the renderer process loads.
+ * It uses Electron's contextBridge to safely expose a limited API (electronAPI)
+ * to the renderer, enabling IPC communication while maintaining security through
+ * context isolation.
+ *
+ * The exposed API provides methods for:
+ * - Navigation control (goto, back, forward, reload)
+ * - Tab management (new, close, switch)
+ * - Window controls (minimize, maximize, close)
+ * - Event subscriptions (tabs updated, URL changed, session events)
+ *
+ * @module main/preload
+ */
+
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS, TabInfo } from "../shared/types";
 
-// Expose protected methods to renderer process
+/**
+ * Expose the electronAPI to the renderer process via contextBridge.
+ * All methods are safe to call from the renderer and communicate via IPC.
+ */
 contextBridge.exposeInMainWorld("electronAPI", {
   // Navigation
   navigateTo: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.NAVIGATE_TO, url),

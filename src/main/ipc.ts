@@ -1,7 +1,28 @@
+/**
+ * @fileoverview IPC (Inter-Process Communication) handlers for main process.
+ *
+ * This module sets up all IPC handlers that allow the renderer process to
+ * communicate with the main process. Handlers are provided for navigation,
+ * tab management, window controls, and menu actions.
+ *
+ * @module main/ipc
+ */
+
 import { ipcMain, BrowserWindow } from "electron";
 import { IPC_CHANNELS } from "../shared/types";
 import { sessionManager } from "./session";
 
+/**
+ * Sets up all IPC handlers for communication between renderer and main process.
+ *
+ * Registers handlers for:
+ * - Navigation: navigateTo, back, forward, reload, home
+ * - Tabs: new, close, switch
+ * - Window: minimize, maximize, close
+ * - View: zoom, fullscreen, devtools
+ *
+ * @param mainWindow - The main BrowserWindow instance
+ */
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
   // Navigation handlers
   ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO, async (_event, url: string) => {
@@ -129,8 +150,13 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
   });
 }
 
+/**
+ * Removes all IPC handlers during application cleanup.
+ *
+ * Should be called when the application is quitting to prevent
+ * memory leaks and ensure clean shutdown.
+ */
 export function removeIpcHandlers(): void {
-  // Remove all handlers on cleanup
   const channels = Object.values(IPC_CHANNELS);
   channels.forEach((channel) => {
     ipcMain.removeHandler(channel);

@@ -1,30 +1,65 @@
-// Viewport configuration
+/**
+ * @fileoverview Shared type definitions and constants for Desktop Browserbase.
+ *
+ * This module contains all TypeScript interfaces, types, and constants shared
+ * between the main process and renderer process. It defines the data structures
+ * for session management, tab handling, IPC communication, and application settings.
+ *
+ * @module shared/types
+ */
+
+/**
+ * Configuration for browser viewport dimensions.
+ * Used when creating sessions and updating viewport on window resize.
+ */
 export interface ViewportConfig {
+  /** Viewport width in pixels */
   width: number;
+  /** Viewport height in pixels */
   height: number;
 }
 
-// Session configuration for Browserbase
+/**
+ * Configuration options for creating a Browserbase session.
+ * Passed to the Browserbase API when initializing a new remote browser.
+ */
 export interface SessionConfig {
+  /** Browserbase project ID (usually set via environment variable) */
   projectId?: string;
+  /** Browser-specific settings */
   browserSettings?: {
+    /** Enable stealth mode for bot detection bypass (default: true) */
     stealth?: boolean;
+    /** Initial viewport dimensions */
     viewport?: ViewportConfig;
+    /** Device scale factor for Retina displays (2 for macOS, 1 for others) */
     deviceScaleFactor?: number;
   };
 }
 
-// Tab information from remote browser
+/**
+ * Information about a browser tab in the remote session.
+ * Synchronized from Playwright pages and sent to the renderer for UI updates.
+ */
 export interface TabInfo {
+  /** Unique tab identifier (format: "tab-{index}") */
   id: string;
+  /** CDP target ID for the page */
   targetId: string;
+  /** Page title (from document.title) */
   title: string;
+  /** Current page URL */
   url: string;
+  /** Favicon URL (fetched from Google's favicon service) */
   favicon?: string;
+  /** Whether this tab is currently active/focused */
   active: boolean;
 }
 
-// Input events to forward to remote browser
+/**
+ * Input events that can be forwarded to the remote browser.
+ * Used for mouse, keyboard, scroll, and touch interactions.
+ */
 export interface InputEvent {
   type: "mouse" | "keyboard" | "scroll" | "touch";
   mouseEvent?: {
@@ -47,7 +82,10 @@ export interface InputEvent {
   };
 }
 
-// Download information
+/**
+ * Information about a file download in progress or completed.
+ * Used to display download progress in the downloads bar.
+ */
 export interface DownloadInfo {
   id: string;
   filename: string;
@@ -57,7 +95,10 @@ export interface DownloadInfo {
   state: "in_progress" | "completed" | "cancelled" | "interrupted";
 }
 
-// Browserbase session information
+/**
+ * Session information returned by the Browserbase API.
+ * Contains connection URLs for CDP and live view embedding.
+ */
 export interface BrowserbaseSession {
   id: string;
   status: string;

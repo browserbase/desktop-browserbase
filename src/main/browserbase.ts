@@ -1,9 +1,41 @@
+/**
+ * @fileoverview Browserbase API client for managing remote browser sessions.
+ *
+ * This module provides the BrowserbaseClient class which handles all communication
+ * with the Browserbase REST API. It manages session creation, retrieval, and cleanup,
+ * as well as obtaining debug URLs for the live view embedding.
+ *
+ * @module main/browserbase
+ */
+
 import { BrowserbaseSession, SessionConfig } from "../shared/types";
 
+/** Browserbase API base URL */
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1";
+
+/** Maximum number of retry attempts for failed API requests */
 const MAX_RETRIES = 3;
+
+/** Base delay in milliseconds between retry attempts (uses exponential backoff) */
 const RETRY_DELAY_MS = 1000;
 
+/**
+ * Client for interacting with the Browserbase API.
+ *
+ * Handles authentication, session lifecycle management, and provides methods
+ * for creating, retrieving, and stopping remote browser sessions.
+ *
+ * @example
+ * ```typescript
+ * const client = new BrowserbaseClient();
+ * const session = await client.createSession({
+ *   browserSettings: { viewport: { width: 1920, height: 1080 } }
+ * });
+ * // Use session.connectUrl for CDP connection
+ * // Use session.debugUrl for live view iframe
+ * await client.stopSession(session.id);
+ * ```
+ */
 export class BrowserbaseClient {
   private apiKey: string;
   private projectId: string;
@@ -23,6 +55,18 @@ export class BrowserbaseClient {
     this.projectId = projectId;
   }
 
+  /**
+   * Makes an HTTP request with automatic retry logic and exponential backoff.
+   *
+   * Retries on server errors (5xx) and rate limiting (429). Does not retry
+   * on client errors (4xx) except for rate limiting.
+   *
+   * @param url - The URL to fetch
+   * @param options - Fetch request options
+   * @param retries - Maximum number of retry attempts
+   * @returns The fetch Response object
+   * @throws Error if all retry attempts fail
+   */
   private async fetchWithRetry(
     url: string,
     options: RequestInit,
@@ -63,10 +107,21 @@ export class BrowserbaseClient {
     throw lastError || new Error("Request failed after retries");
   }
 
+  /** Utility function to pause execution for a specified duration */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /**
+   * Creates a new Browserbase remote browser session.
+   *
+   * The session is created with stealth mode enabled by default. Optionally
+   * accepts viewport dimensions and device scale factor for Retina support.
+   *
+   * @param config - Optional session configuration
+   * @returns Session information including connection URLs
+   * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
+   */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
     const browserSettings: Record<string, unknown> = {
       stealth: true,
@@ -127,6 +182,15 @@ export class BrowserbaseClient {
     };
   }
 
+  /**
+   * Retrieves the debug/live view URL for a session.
+   *
+   * The URL can be embedded in an iframe to display the remote browser's
+   * screen. Appends `navbar=false` to hide Browserbase's navigation UI.
+   *
+   * @param sessionId - The session ID to get the debug URL for
+   * @returns The debug URL for iframe embedding
+   */
   async getDebugUrl(sessionId: string): Promise<string> {
     try {
       const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
@@ -156,6 +220,16 @@ export class BrowserbaseClient {
     }
   }
 
+  /**
+   * Gets the debug URL for a specific page/tab within a session.
+   *
+   * Used when switching tabs to get the correct live view URL for the
+   * newly active page. Matches pages by their current URL.
+   *
+   * @param sessionId - The session ID
+   * @param pageUrl - The URL of the page to find
+   * @returns The debug URL for the page, or null if not found
+   */
   async getDebugUrlForPage(sessionId: string, pageUrl: string): Promise<string | null> {
     try {
       const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
@@ -204,6 +278,13 @@ export class BrowserbaseClient {
     }
   }
 
+  /**
+   * Retrieves information about an existing session.
+   *
+   * @param sessionId - The session ID to retrieve
+   * @returns Session information including current status and URLs
+   * @throws Error if session retrieval fails
+   */
   async getSession(sessionId: string): Promise<BrowserbaseSession> {
     const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
       method: "GET",
@@ -230,6 +311,14 @@ export class BrowserbaseClient {
     };
   }
 
+  /**
+   * Stops/releases a Browserbase session.
+   *
+   * Called during cleanup to release cloud resources. Errors are logged
+   * but not thrown since this is typically called during shutdown.
+   *
+   * @param sessionId - The session ID to stop
+   */
   async stopSession(sessionId: string): Promise<void> {
     try {
       const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
@@ -253,6 +342,17 @@ export class BrowserbaseClient {
     }
   }
 
+  /**
+   * Waits for a session to reach the RUNNING state.
+   *
+   * Polls the session status until it's ready or times out. Used after
+   * session creation to ensure the browser is fully initialized.
+   *
+   * @param sessionId - The session ID to wait for
+   * @param timeoutMs - Maximum time to wait in milliseconds (default: 30000)
+   * @returns Session information once ready
+   * @throws Error if session fails or times out
+   */
   async waitForSessionReady(sessionId: string, timeoutMs: number = 30000): Promise<BrowserbaseSession> {
     const startTime = Date.now();
 
@@ -273,18 +373,37 @@ export class BrowserbaseClient {
     throw new Error("Session startup timeout");
   }
 
+  /**
+   * Constructs the WebSocket URL for CDP connection.
+   *
+   * @param sessionId - The session ID
+   * @returns WebSocket URL for Chrome DevTools Protocol connection
+   */
   getDebugConnectionUrl(sessionId: string): string {
     return `wss://connect.browserbase.com?apiKey=${this.apiKey}&sessionId=${sessionId}`;
   }
 
+  /**
+   * Checks if the client has valid configuration.
+   *
+   * @returns true if API key and project ID are set
+   */
   isConfigured(): boolean {
     return !!this.apiKey && !!this.projectId;
   }
 }
 
-// Lazy initialization to avoid throwing on import
+/** Lazily initialized singleton client instance */
 let _browserbaseClient: BrowserbaseClient | null = null;
 
+/**
+ * Gets or creates the singleton BrowserbaseClient instance.
+ *
+ * Uses lazy initialization to avoid throwing errors on module import
+ * when environment variables are not yet set.
+ *
+ * @returns The singleton BrowserbaseClient instance
+ */
 export function getBrowserbaseClient(): BrowserbaseClient {
   if (!_browserbaseClient) {
     _browserbaseClient = new BrowserbaseClient();

@@ -1,8 +1,38 @@
+/**
+ * @fileoverview Session management for Browserbase remote browser connections.
+ *
+ * This module provides the SessionManager class which handles the lifecycle of
+ * remote browser sessions. It manages Playwright CDP connections, tab synchronization,
+ * navigation, viewport updates, and IPC communication with the renderer process.
+ *
+ * @module main/session
+ */
+
 import { chromium, Browser, CDPSession, Page, BrowserContext } from "playwright-core";
 import { BrowserWindow } from "electron";
 import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo } from "../shared/types";
 import { BrowserbaseClient } from "./browserbase";
 
+/**
+ * Manages the lifecycle and state of a Browserbase remote browser session.
+ *
+ * Responsibilities:
+ * - Creating and connecting to Browserbase sessions
+ * - Managing browser tabs (create, close, switch)
+ * - Handling navigation (goto, back, forward, reload)
+ * - Synchronizing tab state with the renderer
+ * - Managing viewport dimensions via CDP
+ * - Handling disconnection and reconnection
+ *
+ * @example
+ * ```typescript
+ * const manager = new SessionManager();
+ * manager.setMainWindow(mainWindow);
+ * const session = await manager.initialize();
+ * await manager.navigateTo('https://example.com');
+ * await manager.cleanup();
+ * ```
+ */
 export class SessionManager {
   private browserbaseClient: BrowserbaseClient;
   private session: BrowserbaseSession | null = null;
