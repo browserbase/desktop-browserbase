@@ -25,6 +25,10 @@ mac:
         - arm64
   icon: assets/icons/icon.icns
   category: public.app-category.productivity
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  entitlements: null
+  entitlementsInherit: null
 
 linux:
   target:

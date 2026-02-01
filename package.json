@@ -1,6 +1,6 @@
 {
   "name": "desktop-browserbase",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Chrome-like desktop browser powered by Browserbase remote browsers",
   "main": "dist/main/index.js",
   "scripts": {

@@ -14,6 +14,20 @@ Download the latest release for your platform:
 
 > **Note:** You'll need a [Browserbase](https://browserbase.com) account with API access to use this application.
 
+### macOS Installation
+
+Since the app is not signed with an Apple Developer certificate, macOS will block it by default. To open it:
+
+1. Download and open the `.dmg` file
+2. Drag the app to Applications
+3. **Right-click** (or Control+click) on the app and select **"Open"**
+4. Click **"Open"** in the dialog that appears
+
+Alternatively, you can allow the app in System Settings:
+1. Go to **System Settings > Privacy & Security**
+2. Scroll down to find the blocked app message
+3. Click **"Open Anyway"**
+
 ## Features
 
 - **Native Chrome Experience** - Pixel-perfect Chrome v130+ UI styling
