@@ -115,17 +115,30 @@ export class BrowserbaseClient {
   /**
    * Creates a new Browserbase remote browser session.
    *
-   * The session is created with stealth mode enabled by default. Optionally
-   * accepts viewport dimensions and device scale factor for Retina support.
+   * Sessions are created with Verified Browser Mode (advanced stealth) and
+   * Browserbase-managed residential proxies enabled by default, which helps
+   * pass Cloudflare and similar anti-bot challenges. Both can be disabled via
+   * the BROWSERBASE_VERIFIED / BROWSERBASE_PROXIES env vars (set to "false").
+   * Optionally accepts viewport dimensions and device scale factor for Retina.
+   *
+   * Note: `verified` and residential `proxies` require a Browserbase plan that
+   * includes them.
    *
    * @param config - Optional session configuration
    * @returns Session information including connection URLs
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
+    // Default ON. Set the env var to "false" to disable.
+    // `verified` => browserSettings.verified (Verified Browser Mode / advanced stealth).
+    // `proxies`  => top-level proxies (Browserbase-managed residential proxies).
+    const verified = process.env.BROWSERBASE_VERIFIED !== "false";
+    const useProxies = process.env.BROWSERBASE_PROXIES !== "false";
+
     const browserSettings: Record<string, unknown> = {
-      stealth: true,
+      verified,
     };
+    console.log("Creating session with verified:", verified, "proxies:", useProxies);
 
     // Add viewport if provided
     if (config?.browserSettings?.viewport) {
@@ -147,6 +160,7 @@ export class BrowserbaseClient {
       },
       body: JSON.stringify({
         projectId: this.projectId,
+        proxies: useProxies,
         browserSettings,
       }),
     });

@@ -42,7 +42,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 - **Window State Persistence** - Remembers size and position between sessions
 - **Bookmarks Bar** - Visual bookmarks bar (toggleable with Ctrl+Shift+B)
 - **Downloads Bar** - Download progress tracking
-- **Stealth Mode** - Advanced stealth enabled by default for bot detection bypass
+- **Stealth Mode** - Verified Browser Mode (advanced stealth) + residential proxies enabled by default for bot detection bypass (toggle via `BROWSERBASE_VERIFIED` / `BROWSERBASE_PROXIES`)
 
 ## Prerequisites
 
