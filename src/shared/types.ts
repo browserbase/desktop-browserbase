@@ -26,10 +26,12 @@ export interface ViewportConfig {
 export interface SessionConfig {
   /** Browserbase project ID (usually set via environment variable) */
   projectId?: string;
+  /** Enable Browserbase-managed residential proxies (default: true) */
+  proxies?: boolean;
   /** Browser-specific settings */
   browserSettings?: {
-    /** Enable stealth mode for bot detection bypass (default: true) */
-    stealth?: boolean;
+    /** Enable Verified Browser Mode / advanced stealth for bot detection bypass (default: true) */
+    verified?: boolean;
     /** Initial viewport dimensions */
     viewport?: ViewportConfig;
     /** Device scale factor for Retina displays (2 for macOS, 1 for others) */
