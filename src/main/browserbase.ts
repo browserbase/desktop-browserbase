@@ -8,7 +8,7 @@
  * @module main/browserbase
  */
 
-import { BrowserbaseSession, SessionConfig } from "../shared/types";
+import { BrowserbaseSession, BrowserbaseSessionStatus, SessionConfig } from "../shared/types";
 
 /** Browserbase API base URL */
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1";
@@ -18,6 +18,31 @@ const MAX_RETRIES = 3;
 
 /** Base delay in milliseconds between retry attempts (uses exponential backoff) */
 const RETRY_DELAY_MS = 1000;
+
+/** Default maximum time to wait for a deferred session to become RUNNING */
+const DEFAULT_SESSION_READY_TIMEOUT_MS = 120000;
+
+/** Default polling interval for deferred session readiness checks */
+const DEFAULT_SESSION_READY_POLL_INTERVAL_MS = 1500;
+
+/** Browserbase statuses that mean a session will never become connectable */
+const TERMINAL_SESSION_STATUSES = new Set(["COMPLETED", "TIMED_OUT", "ERROR", "STOPPED"]);
+
+interface BrowserbaseApiSession {
+  id: string;
+  status: BrowserbaseSessionStatus;
+  connectUrl?: string;
+  seleniumRemoteUrl?: string;
+  signingKey?: string;
+}
+
+interface CreateSessionRequest {
+  projectId: string;
+  browserSettings: Record<string, unknown>;
+  scheduleMode?: "deferred";
+  timeout?: number;
+  region?: string;
+}
 
 /**
  * Client for interacting with the Browserbase API.
@@ -112,11 +137,82 @@ export class BrowserbaseClient {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private getPositiveIntegerEnv(name: string, fallback: number): number {
+    const value = process.env[name];
+    if (!value) {
+      return fallback;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  private shouldUseAsyncBrowsers(): boolean {
+    const value = process.env.BROWSERBASE_ASYNC_BROWSERS;
+    if (!value) {
+      return false;
+    }
+
+    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+  }
+
+  private getDefaultReadyTimeoutMs(): number {
+    return this.getPositiveIntegerEnv(
+      "BROWSERBASE_ASYNC_READY_TIMEOUT_MS",
+      DEFAULT_SESSION_READY_TIMEOUT_MS
+    );
+  }
+
+  private getDefaultReadyPollIntervalMs(): number {
+    return this.getPositiveIntegerEnv(
+      "BROWSERBASE_ASYNC_POLL_INTERVAL_MS",
+      DEFAULT_SESSION_READY_POLL_INTERVAL_MS
+    );
+  }
+
+  private async fetchSession(sessionId: string): Promise<BrowserbaseApiSession> {
+    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
+      method: "GET",
+      headers: {
+        "x-bb-api-key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to get Browserbase session: ${error}`);
+    }
+
+    return await response.json() as BrowserbaseApiSession;
+  }
+
+  private async toReadySession(session: BrowserbaseApiSession): Promise<BrowserbaseSession> {
+    if (session.status !== "RUNNING") {
+      throw new Error(
+        `Browserbase session ${session.id} is ${session.status}; connection details are not available yet`
+      );
+    }
+
+    // Get the debug/live view URL from the debug endpoint once the browser is running.
+    const debugUrl = await this.getDebugUrl(session.id);
+    console.log("Using debugUrl:", debugUrl);
+
+    return {
+      id: session.id,
+      status: session.status,
+      connectUrl: session.connectUrl || this.getDebugConnectionUrl(session.id),
+      debugUrl,
+      seleniumRemoteUrl: session.seleniumRemoteUrl,
+      signingKey: session.signingKey,
+    };
+  }
+
   /**
    * Creates a new Browserbase remote browser session.
    *
-   * The session is created with stealth mode enabled by default. Optionally
-   * accepts viewport dimensions and device scale factor for Retina support.
+   * Sessions use standard synchronous scheduling unless async browsers are
+   * explicitly enabled. When the API returns a PENDING session, this method
+   * polls until the browser is RUNNING and only then returns connection details.
    *
    * @param config - Optional session configuration
    * @returns Session information including connection URLs
@@ -139,16 +235,35 @@ export class BrowserbaseClient {
       console.log("Creating session with deviceScaleFactor:", config.browserSettings.deviceScaleFactor);
     }
 
+    const scheduleMode = config?.scheduleMode ?? (
+      this.shouldUseAsyncBrowsers() ? "deferred" : undefined
+    );
+
+    const requestBody: CreateSessionRequest = {
+      projectId: config?.projectId || this.projectId,
+      browserSettings,
+    };
+
+    if (scheduleMode) {
+      requestBody.scheduleMode = scheduleMode;
+      console.log("Creating session with scheduleMode:", scheduleMode);
+    }
+
+    if (typeof config?.timeout === "number") {
+      requestBody.timeout = config.timeout;
+    }
+
+    if (config?.region) {
+      requestBody.region = config.region;
+    }
+
     const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-bb-api-key": this.apiKey,
       },
-      body: JSON.stringify({
-        projectId: this.projectId,
-        browserSettings,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -167,19 +282,19 @@ export class BrowserbaseClient {
       throw new Error(errorMessage);
     }
 
-    const session = await response.json() as { id: string; status: string; connectUrl?: string };
+    const session = await response.json() as BrowserbaseApiSession;
     console.log("Browserbase session created:", JSON.stringify(session, null, 2));
 
-    // Get the debug/live view URL from the debug endpoint
-    const debugUrl = await this.getDebugUrl(session.id);
-    console.log("Using debugUrl:", debugUrl);
+    if (session.status === "PENDING") {
+      console.log(`Browserbase session ${session.id} is pending; polling until RUNNING...`);
+      return await this.waitForSessionReady(
+        session.id,
+        config?.readyTimeoutMs,
+        config?.readyPollIntervalMs
+      );
+    }
 
-    return {
-      id: session.id,
-      status: session.status,
-      connectUrl: session.connectUrl || `wss://connect.browserbase.com?apiKey=${this.apiKey}&sessionId=${session.id}`,
-      debugUrl,
-    };
+    return await this.toReadySession(session);
   }
 
   /**
@@ -286,29 +401,8 @@ export class BrowserbaseClient {
    * @throws Error if session retrieval fails
    */
   async getSession(sessionId: string): Promise<BrowserbaseSession> {
-    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
-      method: "GET",
-      headers: {
-        "x-bb-api-key": this.apiKey,
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get Browserbase session: ${error}`);
-    }
-
-    const session = await response.json() as { id: string; status: string; connectUrl?: string };
-
-    // Get the debug/live view URL from the debug endpoint
-    const debugUrl = await this.getDebugUrl(sessionId);
-
-    return {
-      id: session.id,
-      status: session.status,
-      connectUrl: session.connectUrl || `wss://connect.browserbase.com?apiKey=${this.apiKey}&sessionId=${session.id}`,
-      debugUrl,
-    };
+    const session = await this.fetchSession(sessionId);
+    return await this.toReadySession(session);
   }
 
   /**
@@ -349,28 +443,45 @@ export class BrowserbaseClient {
    * session creation to ensure the browser is fully initialized.
    *
    * @param sessionId - The session ID to wait for
-   * @param timeoutMs - Maximum time to wait in milliseconds (default: 30000)
+   * @param timeoutMs - Maximum time to wait in milliseconds
+   * @param pollIntervalMs - Delay between readiness checks in milliseconds
    * @returns Session information once ready
    * @throws Error if session fails or times out
    */
-  async waitForSessionReady(sessionId: string, timeoutMs: number = 30000): Promise<BrowserbaseSession> {
+  async waitForSessionReady(
+    sessionId: string,
+    timeoutMs: number = this.getDefaultReadyTimeoutMs(),
+    pollIntervalMs: number = this.getDefaultReadyPollIntervalMs()
+  ): Promise<BrowserbaseSession> {
     const startTime = Date.now();
+    let lastStatus: BrowserbaseSessionStatus = "UNKNOWN";
 
-    while (Date.now() - startTime < timeoutMs) {
-      const session = await this.getSession(sessionId);
+    while (Date.now() - startTime <= timeoutMs) {
+      const session = await this.fetchSession(sessionId);
+      lastStatus = session.status;
 
       if (session.status === "RUNNING") {
-        return session;
+        console.log(`Browserbase session ${sessionId} is RUNNING`);
+        return await this.toReadySession(session);
       }
 
-      if (session.status === "ERROR" || session.status === "STOPPED") {
+      if (TERMINAL_SESSION_STATUSES.has(session.status)) {
         throw new Error(`Session failed with status: ${session.status}`);
       }
 
-      await this.sleep(1000);
+      console.log(`Browserbase session ${sessionId} is ${session.status}; polling again...`);
+
+      const remainingMs = timeoutMs - (Date.now() - startTime);
+      if (remainingMs <= 0) {
+        break;
+      }
+
+      await this.sleep(Math.min(pollIntervalMs, remainingMs));
     }
 
-    throw new Error("Session startup timeout");
+    throw new Error(
+      `Session startup timeout after ${timeoutMs}ms; last status was ${lastStatus}`
+    );
   }
 
   /**

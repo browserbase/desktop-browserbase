@@ -67,7 +67,7 @@ An Electron application that provides a high-fidelity Chrome browser interface w
 | Feature | Implementation |
 |---------|----------------|
 | Live View | Native Browserbase live-view iframe embed |
-| Session Creation | New session per app window |
+| Session Creation | New session per app window; optional async/deferred scheduling via environment flag |
 | Authentication | Environment variables (`BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`) |
 | Stealth Mode | Advanced stealth enabled by default |
 
@@ -76,6 +76,9 @@ An Electron application that provides a high-fidelity Chrome browser interface w
 ```typescript
 interface SessionConfig {
   projectId: string;
+  scheduleMode?: "deferred";
+  readyTimeoutMs?: number;
+  readyPollIntervalMs?: number;
   browserSettings: {
     stealth: "advanced";
     viewport: { width: number; height: number };
@@ -229,6 +232,9 @@ BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Optional
 BROWSERBASE_DEFAULT_URL=https://www.google.com
+BROWSERBASE_ASYNC_BROWSERS=false
+BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000
+BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500
 BROWSERBASE_PROXY_ENABLED=true
 ```
 
