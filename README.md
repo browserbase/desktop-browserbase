@@ -42,6 +42,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 - **Window State Persistence** - Remembers size and position between sessions
 - **Bookmarks Bar** - Visual bookmarks bar (toggleable with Ctrl+Shift+B)
 - **Downloads Bar** - Download progress tracking
+- **Async Browser Sessions** - Optional deferred Browserbase session creation with readiness polling
 - **Stealth Mode** - Advanced stealth enabled by default for bot detection bypass
 
 ## Prerequisites
@@ -72,6 +73,9 @@ Or create a `.env` file:
 BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
 BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 BROWSERBASE_DEFAULT_URL=https://www.google.com  # optional
+BROWSERBASE_ASYNC_BROWSERS=true                 # optional, enables async browsers
+BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
+BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500         # optional
 ```
 
 3. Build and run:
@@ -188,6 +192,8 @@ Make sure `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set before runn
 - Check your internet connection
 - Verify your API key is valid
 - Check the Browserbase status page
+- Async Browser sessions are disabled by default. Set `BROWSERBASE_ASYNC_BROWSERS=true` to use deferred session creation.
+- If async provisioning is slow, raise `BROWSERBASE_ASYNC_READY_TIMEOUT_MS`. The app polls every `BROWSERBASE_ASYNC_POLL_INTERVAL_MS` milliseconds while an async session is `PENDING`.
 
 ## Building for Distribution
 

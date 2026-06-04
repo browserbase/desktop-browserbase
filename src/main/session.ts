@@ -133,8 +133,9 @@ export class SessionManager {
       console.log(`Actual viewport to use: ${contentWidth}x${contentHeight}`);
       console.log(`Creating session with initial viewport: ${viewportWidth}x${viewportHeight} (will override with CDP)`);
 
-      // Create a new Browserbase session with viewport matching our window
-      // Use deviceScaleFactor of 2 for Retina displays
+      // Create a Browserbase session with viewport matching our window.
+      // BrowserbaseClient waits until the remote browser is RUNNING before
+      // returning connection URLs when async/deferred scheduling is enabled.
       const scaleFactor = this.mainWindow?.webContents.getZoomFactor() || 1;
       const deviceScaleFactor = process.platform === 'darwin' ? 2 : 1;
 

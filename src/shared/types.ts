@@ -19,6 +19,22 @@ export interface ViewportConfig {
   height: number;
 }
 
+/** Browserbase session scheduling mode. */
+export type BrowserbaseScheduleMode = "deferred";
+
+/**
+ * Browserbase session lifecycle status.
+ * The API may introduce additional statuses, so keep unknown strings accepted.
+ */
+export type BrowserbaseSessionStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "TIMED_OUT"
+  | "ERROR"
+  | "STOPPED"
+  | (string & {});
+
 /**
  * Configuration options for creating a Browserbase session.
  * Passed to the Browserbase API when initializing a new remote browser.
@@ -26,6 +42,16 @@ export interface ViewportConfig {
 export interface SessionConfig {
   /** Browserbase project ID (usually set via environment variable) */
   projectId?: string;
+  /** Use "deferred" to provision the browser asynchronously. */
+  scheduleMode?: BrowserbaseScheduleMode;
+  /** Maximum time to wait for an async browser to become RUNNING. */
+  readyTimeoutMs?: number;
+  /** Polling interval while waiting for an async browser to become RUNNING. */
+  readyPollIntervalMs?: number;
+  /** Browserbase session timeout in seconds. */
+  timeout?: number;
+  /** Browserbase region, such as "us-west-2". */
+  region?: string;
   /** Browser-specific settings */
   browserSettings?: {
     /** Enable stealth mode for bot detection bypass (default: true) */
@@ -101,9 +127,11 @@ export interface DownloadInfo {
  */
 export interface BrowserbaseSession {
   id: string;
-  status: string;
+  status: BrowserbaseSessionStatus;
   connectUrl: string;
   debugUrl: string;
+  seleniumRemoteUrl?: string;
+  signingKey?: string;
 }
 
 // IPC channel names
