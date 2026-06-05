@@ -17,6 +17,7 @@ import * as fs from "fs";
 import { sessionManager } from "./session";
 import { setupIpcHandlers, removeIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../shared/types";
+import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -72,7 +73,9 @@ function validateEnvironment(): boolean {
         "Please set:\n" +
         "- BROWSERBASE_API_KEY\n" +
         "- BROWSERBASE_PROJECT_ID\n\n" +
-        "See README.md for setup instructions."
+        "Set them in your shell or in one of these config files:\n" +
+        getConfigSearchPaths().map((filePath) => `- ${filePath}`).join("\n") +
+        "\n\nSee README.md for setup instructions."
     );
     return false;
   }
@@ -455,6 +458,11 @@ function setupContentSecurityPolicy(): void {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  const loadedConfigFiles = loadEnvironmentConfig();
+  if (loadedConfigFiles.length > 0) {
+    console.log("Loaded configuration from:", loadedConfigFiles);
+  }
+
   // Validate environment before starting
   if (!validateEnvironment()) {
     app.quit();

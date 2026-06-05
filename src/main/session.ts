@@ -11,7 +11,7 @@
 import { chromium, Browser, CDPSession, Page, BrowserContext } from "playwright-core";
 import { BrowserWindow } from "electron";
 import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo } from "../shared/types";
-import { BrowserbaseClient } from "./browserbase";
+import { BrowserbaseClient, getBrowserbaseClient } from "./browserbase";
 
 /**
  * Manages the lifecycle and state of a Browserbase remote browser session.
@@ -34,7 +34,7 @@ import { BrowserbaseClient } from "./browserbase";
  * ```
  */
 export class SessionManager {
-  private browserbaseClient: BrowserbaseClient;
+  private browserbaseClient: BrowserbaseClient | null = null;
   private session: BrowserbaseSession | null = null;
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
@@ -47,12 +47,15 @@ export class SessionManager {
   private maxReconnectAttempts = 3;
   private isConnecting = false;
 
-  constructor() {
-    this.browserbaseClient = new BrowserbaseClient();
-  }
-
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window;
+  }
+
+  private getBrowserbaseClient(): BrowserbaseClient {
+    if (!this.browserbaseClient) {
+      this.browserbaseClient = getBrowserbaseClient();
+    }
+    return this.browserbaseClient;
   }
 
   // Store current viewport dimensions for applying to new tabs
@@ -139,7 +142,7 @@ export class SessionManager {
       const scaleFactor = this.mainWindow?.webContents.getZoomFactor() || 1;
       const deviceScaleFactor = process.platform === 'darwin' ? 2 : 1;
 
-      this.session = await this.browserbaseClient.createSession({
+      this.session = await this.getBrowserbaseClient().createSession({
         browserSettings: {
           viewport: {
             width: viewportWidth,
@@ -423,7 +426,7 @@ export class SessionManager {
         setTimeout(async () => {
           try {
             const pageUrl = newPage.url();
-            const newDebugUrl = await this.browserbaseClient.getDebugUrlForPage(sessionId, pageUrl);
+            const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, pageUrl);
             if (newDebugUrl) {
               this.notifyDebugUrlChanged(newDebugUrl);
             }
@@ -463,7 +466,7 @@ export class SessionManager {
             setTimeout(async () => {
               try {
                 const pageUrl = activePage.url();
-                const newDebugUrl = await this.browserbaseClient.getDebugUrlForPage(sessionId, pageUrl);
+                const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, pageUrl);
                 if (newDebugUrl) {
                   this.notifyDebugUrlChanged(newDebugUrl);
                 }
@@ -502,7 +505,7 @@ export class SessionManager {
         if (this.session && pages[tabIndex]) {
           try {
             const pageUrl = pages[tabIndex].url();
-            const newDebugUrl = await this.browserbaseClient.getDebugUrlForPage(this.session.id, pageUrl);
+            const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(this.session.id, pageUrl);
             if (newDebugUrl) {
               this.notifyDebugUrlChanged(newDebugUrl);
             }
@@ -593,7 +596,7 @@ export class SessionManager {
       }
 
       if (this.session) {
-        await this.browserbaseClient.stopSession(this.session.id);
+        await this.getBrowserbaseClient().stopSession(this.session.id);
         this.session = null;
       }
     } catch (error) {

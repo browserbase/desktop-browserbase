@@ -238,6 +238,11 @@ BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500
 BROWSERBASE_PROXY_ENABLED=true
 ```
 
+At startup the desktop app loads `.env` and `browserbase.env` from the current
+working directory, the Electron user data directory, and the user's home
+directory before validating required Browserbase settings. Existing environment
+variables take precedence over file values.
+
 ### App Settings (Future)
 
 ```json
