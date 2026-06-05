@@ -12,6 +12,7 @@ import { chromium, Browser, CDPSession, Page, BrowserContext } from "playwright-
 import { BrowserWindow } from "electron";
 import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo } from "../shared/types";
 import { BrowserbaseClient, getBrowserbaseClient } from "./browserbase";
+import { AutomationSessionInfo } from "./automation";
 
 /**
  * Manages the lifecycle and state of a Browserbase remote browser session.
@@ -595,6 +596,21 @@ export class SessionManager {
 
   getSessionId(): string {
     return this.session?.id || "";
+  }
+
+  getAutomationInfo(): AutomationSessionInfo | null {
+    if (!this.session) {
+      return null;
+    }
+
+    return {
+      sessionId: this.session.id,
+      status: this.session.status,
+      connectUrl: this.session.connectUrl,
+      debugUrl: this.session.debugUrl,
+      currentUrl: this.currentUrl,
+      tabs: this.tabs,
+    };
   }
 
   private handleDisconnect(): void {
