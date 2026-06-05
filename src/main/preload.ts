@@ -96,6 +96,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.DEBUG_URL_CHANGED, listener);
   },
 
+  onDebugUrlLoading: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.DEBUG_URL_LOADING, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.DEBUG_URL_LOADING, listener);
+  },
+
   // Download events
   onDownloadStarted: (callback: (download: any) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, download: any) => callback(download);
@@ -145,6 +151,7 @@ declare global {
       onSessionDisconnected: (callback: () => void) => () => void;
       onBookmarksToggle: (callback: () => void) => () => void;
       onDebugUrlChanged: (callback: (url: string) => void) => () => void;
+      onDebugUrlLoading: (callback: () => void) => () => void;
       onDownloadStarted: (callback: (download: any) => void) => () => void;
       onDownloadProgress: (callback: (download: any) => void) => () => void;
       onDownloadCompleted: (callback: (download: any) => void) => () => void;

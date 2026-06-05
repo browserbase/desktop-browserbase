@@ -338,6 +338,62 @@ export class SessionManager {
     return pages[this.activeTabIndex] || pages[0] || null;
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async getTargetIdForPage(page: Page): Promise<string | null> {
+    try {
+      const cdp = await page.context().newCDPSession(page);
+      const targetInfo = await cdp.send("Target.getTargetInfo") as { targetInfo?: { targetId?: string } };
+      return targetInfo.targetInfo?.targetId || null;
+    } catch (error) {
+      console.warn("Failed to read page target ID:", error);
+      return null;
+    }
+  }
+
+  private async waitForDebugUrlForPage(
+    page: Page,
+    timeoutMs: number = 5000,
+    pollIntervalMs: number = 150
+  ): Promise<string | null> {
+    if (!this.session) {
+      return null;
+    }
+
+    const sessionId = this.session.id;
+    const targetId = await this.getTargetIdForPage(page);
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      let debugUrl: string | null = null;
+
+      if (targetId) {
+        debugUrl = await this.getBrowserbaseClient().getDebugUrlForTarget(sessionId, targetId);
+      }
+
+      if (!debugUrl && (!targetId || page.url() !== "about:blank")) {
+        debugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, page.url(), {
+          fallbackToPrimary: false,
+        });
+      }
+
+      if (debugUrl) {
+        return debugUrl;
+      }
+
+      const remainingMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) {
+        break;
+      }
+
+      await this.sleep(Math.min(pollIntervalMs, remainingMs));
+    }
+
+    return null;
+  }
+
   async navigateTo(url: string): Promise<void> {
     if (!this.browser || !this.context) {
       throw new Error("Browser not connected");
@@ -414,26 +470,29 @@ export class SessionManager {
       console.log(`[Viewport] Applying viewport to new tab: ${this.currentViewportWidth}x${this.currentViewportHeight}`);
       await this.applyViewportToPage(newPage, this.currentViewportWidth, this.currentViewportHeight);
 
+      this.notifyDebugUrlLoading();
+      await this.syncTabs();
+
+      let newDebugUrl = await this.waitForDebugUrlForPage(newPage, 3000);
+      if (newDebugUrl) {
+        this.notifyDebugUrlChanged(newDebugUrl);
+      } else {
+        console.warn("Timed out waiting for debug URL for new page before navigation");
+      }
+
       // Navigate to Google like the initial tab
       const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
       await newPage.goto(defaultUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
 
       await this.syncTabs();
 
-      // Wait a moment for the page to register, then get the updated debug URL
-      if (this.session) {
-        const sessionId = this.session.id;
-        setTimeout(async () => {
-          try {
-            const pageUrl = newPage.url();
-            const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, pageUrl);
-            if (newDebugUrl) {
-              this.notifyDebugUrlChanged(newDebugUrl);
-            }
-          } catch (e) {
-            console.error("Failed to get debug URL for new page:", e);
-          }
-        }, 500);
+      if (!newDebugUrl) {
+        newDebugUrl = await this.waitForDebugUrlForPage(newPage, 3000);
+        if (newDebugUrl) {
+          this.notifyDebugUrlChanged(newDebugUrl);
+        } else {
+          console.warn("Timed out waiting for debug URL for new page after navigation");
+        }
       }
     } catch (error) {
       console.error("New tab failed:", error);
@@ -492,6 +551,7 @@ export class SessionManager {
       if (pages[tabIndex]) {
         await pages[tabIndex].bringToFront();
         this.activeTabIndex = tabIndex;
+        this.notifyDebugUrlLoading();
 
         // Update URL to match new active tab
         try {
@@ -585,6 +645,12 @@ export class SessionManager {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       console.log("Notifying debug URL changed:", url);
       this.mainWindow.webContents.send(IPC_CHANNELS.DEBUG_URL_CHANGED, url);
+    }
+  }
+
+  private notifyDebugUrlLoading(): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send(IPC_CHANNELS.DEBUG_URL_LOADING);
     }
   }
 

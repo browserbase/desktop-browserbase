@@ -46,6 +46,10 @@ export class ContentArea {
       this.updateDebugView(url);
     });
 
+    window.electronAPI.onDebugUrlLoading(() => {
+      this.showLoading("Loading tab...");
+    });
+
     if (!this.debugView) {
       console.error("[ContentArea] Webview element not found!");
       return;
@@ -126,12 +130,12 @@ export class ContentArea {
     }
   }
 
-  public showLoading(): void {
+  public showLoading(message: string = "Connecting to Browserbase..."): void {
     if (this.loadingOverlay) {
       this.loadingOverlay.classList.remove("hidden");
       const p = this.loadingOverlay.querySelector("p");
       if (p) {
-        p.textContent = "Connecting to Browserbase...";
+        p.textContent = message;
       }
     }
   }
@@ -178,6 +182,7 @@ export class ContentArea {
 
     if (url && url !== this.debugView.src) {
       console.log("[ContentArea] Updating debug view to:", url);
+      this.showLoading("Loading tab...");
       this.debugView.src = url;
     }
   }
