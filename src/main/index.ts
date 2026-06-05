@@ -11,7 +11,7 @@
  * @module main/index
  */
 
-import { app, BrowserWindow, globalShortcut, session, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, session, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { sessionManager } from "./session";
@@ -81,6 +81,13 @@ function validateEnvironment(): boolean {
 
 function createApplicationMenu(): void {
   const isMac = process.platform === "darwin";
+  const switchToTab = (tabNumber: number) => {
+    const tabs = sessionManager.getTabs();
+    const targetIndex = tabNumber === 9 ? tabs.length - 1 : tabNumber - 1;
+    if (tabs[targetIndex]) {
+      sessionManager.switchTab(tabs[targetIndex].id);
+    }
+  };
 
   const template: MenuItemConstructorOptions[] = [
     // App menu (macOS only)
@@ -160,12 +167,24 @@ function createApplicationMenu(): void {
           accelerator: "CmdOrCtrl+R",
           click: () => sessionManager.reload(),
         },
+        {
+          label: "Reload Page",
+          accelerator: "F5",
+          visible: false,
+          click: () => sessionManager.reload(),
+        },
         { type: "separator" as const },
         { role: "resetZoom" as const },
         { role: "zoomIn" as const },
         { role: "zoomOut" as const },
         { type: "separator" as const },
         { role: "togglefullscreen" as const },
+        {
+          label: "Toggle Full Screen",
+          accelerator: "F11",
+          visible: false,
+          click: () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()),
+        },
         { type: "separator" as const },
         {
           label: "Toggle Bookmarks Bar",
@@ -178,6 +197,12 @@ function createApplicationMenu(): void {
           accelerator: isMac ? "Cmd+Option+I" : "Ctrl+Shift+I",
           click: () => mainWindow?.webContents.openDevTools(),
         },
+        {
+          label: "Developer Tools",
+          accelerator: "F12",
+          visible: false,
+          click: () => mainWindow?.webContents.openDevTools(),
+        },
       ],
     },
     // Navigate menu
@@ -185,15 +210,41 @@ function createApplicationMenu(): void {
       label: "Navigate",
       submenu: [
         {
+          label: "Focus Address Bar",
+          accelerator: "CmdOrCtrl+L",
+          click: () => mainWindow?.webContents.send(IPC_CHANNELS.FOCUS_URL_BAR),
+        },
+        { type: "separator" as const },
+        {
           label: "Back",
-          accelerator: "Alt+Left",
+          accelerator: isMac ? "Command+Left" : "Alt+Left",
           click: () => sessionManager.goBack(),
         },
+        ...(isMac
+          ? [
+              {
+                label: "Back",
+                accelerator: "Command+[",
+                visible: false,
+                click: () => sessionManager.goBack(),
+              },
+            ]
+          : []),
         {
           label: "Forward",
-          accelerator: "Alt+Right",
+          accelerator: isMac ? "Command+Right" : "Alt+Right",
           click: () => sessionManager.goForward(),
         },
+        ...(isMac
+          ? [
+              {
+                label: "Forward",
+                accelerator: "Command+]",
+                visible: false,
+                click: () => sessionManager.goForward(),
+              },
+            ]
+          : []),
         { type: "separator" as const },
         {
           label: "Next Tab",
@@ -219,6 +270,12 @@ function createApplicationMenu(): void {
             }
           },
         },
+        ...Array.from({ length: 9 }, (_, index) => ({
+          label: `Select Tab ${index + 1}`,
+          accelerator: `CmdOrCtrl+${index + 1}`,
+          visible: false,
+          click: () => switchToTab(index + 1),
+        })),
       ],
     },
     // Window menu
@@ -325,9 +382,6 @@ async function createWindow(): Promise<void> {
     }
   });
 
-  // Register keyboard shortcuts
-  registerShortcuts();
-
   // Handle window close
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -336,103 +390,6 @@ async function createWindow(): Promise<void> {
   // Open DevTools in development
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools();
-  }
-}
-
-function registerShortcuts(): void {
-  if (!mainWindow) return;
-
-  // Ctrl+T - New tab
-  globalShortcut.register("CommandOrControl+T", () => {
-    sessionManager.newTab();
-  });
-
-  // Ctrl+W - Close tab
-  globalShortcut.register("CommandOrControl+W", () => {
-    const tabs = sessionManager.getTabs();
-    const activeTab = tabs.find((t) => t.active);
-    if (activeTab && tabs.length > 1) {
-      sessionManager.closeTab(activeTab.id);
-    } else if (tabs.length === 1) {
-      mainWindow?.close();
-    }
-  });
-
-  // Ctrl+Tab - Next tab
-  globalShortcut.register("CommandOrControl+Tab", () => {
-    const tabs = sessionManager.getTabs();
-    const activeIndex = tabs.findIndex((t) => t.active);
-    const nextIndex = (activeIndex + 1) % tabs.length;
-    if (tabs[nextIndex]) {
-      sessionManager.switchTab(tabs[nextIndex].id);
-    }
-  });
-
-  // Ctrl+Shift+Tab - Previous tab
-  globalShortcut.register("CommandOrControl+Shift+Tab", () => {
-    const tabs = sessionManager.getTabs();
-    const activeIndex = tabs.findIndex((t) => t.active);
-    const prevIndex = activeIndex === 0 ? tabs.length - 1 : activeIndex - 1;
-    if (tabs[prevIndex]) {
-      sessionManager.switchTab(tabs[prevIndex].id);
-    }
-  });
-
-  // Ctrl+L - Focus URL bar
-  globalShortcut.register("CommandOrControl+L", () => {
-    mainWindow?.webContents.send("focus-url-bar");
-  });
-
-  // Ctrl+R / F5 - Reload
-  globalShortcut.register("CommandOrControl+R", () => {
-    sessionManager.reload();
-  });
-  globalShortcut.register("F5", () => {
-    sessionManager.reload();
-  });
-
-  // Alt+Left - Back
-  globalShortcut.register("Alt+Left", () => {
-    sessionManager.goBack();
-  });
-
-  // Alt+Right - Forward
-  globalShortcut.register("Alt+Right", () => {
-    sessionManager.goForward();
-  });
-
-  // Ctrl+Shift+B - Toggle bookmarks bar
-  globalShortcut.register("CommandOrControl+Shift+B", () => {
-    mainWindow?.webContents.send(IPC_CHANNELS.BOOKMARKS_TOGGLE);
-  });
-
-  // F11 - Toggle fullscreen
-  globalShortcut.register("F11", () => {
-    if (mainWindow) {
-      mainWindow.setFullScreen(!mainWindow.isFullScreen());
-    }
-  });
-
-  // Ctrl+Shift+I / Cmd+Option+I - DevTools
-  const devToolsAccelerator = process.platform === "darwin" ? "Command+Option+I" : "Control+Shift+I";
-  globalShortcut.register(devToolsAccelerator, () => {
-    mainWindow?.webContents.openDevTools();
-  });
-
-  // F12 - DevTools (common shortcut)
-  globalShortcut.register("F12", () => {
-    mainWindow?.webContents.openDevTools();
-  });
-
-  // Ctrl+1-9 - Switch to specific tab
-  for (let i = 1; i <= 9; i++) {
-    globalShortcut.register(`CommandOrControl+${i}`, () => {
-      const tabs = sessionManager.getTabs();
-      const targetIndex = i === 9 ? tabs.length - 1 : i - 1;
-      if (tabs[targetIndex]) {
-        sessionManager.switchTab(tabs[targetIndex].id);
-      }
-    });
   }
 }
 
@@ -483,7 +440,6 @@ app.on("window-all-closed", async () => {
   // Clean up Browserbase session
   await sessionManager.cleanup();
   removeIpcHandlers();
-  globalShortcut.unregisterAll();
 
   if (process.platform !== "darwin") {
     app.quit();
@@ -492,7 +448,6 @@ app.on("window-all-closed", async () => {
 
 app.on("will-quit", async () => {
   await sessionManager.cleanup();
-  globalShortcut.unregisterAll();
 });
 
 // Handle uncaught exceptions

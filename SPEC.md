@@ -210,15 +210,15 @@ Use Chrome DevTools Protocol for:
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+T | New tab |
-| Ctrl+W | Close tab |
-| Ctrl+Tab | Next tab |
-| Ctrl+Shift+Tab | Previous tab |
-| Ctrl+L | Focus URL bar |
-| Ctrl+R / F5 | Reload |
-| Alt+Left | Back |
-| Alt+Right | Forward |
-| Ctrl+Shift+B | Toggle bookmarks bar |
+| Cmd/Ctrl+T | New tab |
+| Cmd/Ctrl+W | Close tab |
+| Cmd/Ctrl+Tab | Next tab |
+| Cmd/Ctrl+Shift+Tab | Previous tab |
+| Cmd/Ctrl+L | Focus URL bar |
+| Cmd/Ctrl+R / F5 | Reload |
+| Cmd+Left / Cmd+[ on macOS, Alt+Left elsewhere | Back |
+| Cmd+Right / Cmd+] on macOS, Alt+Right elsewhere | Forward |
+| Cmd/Ctrl+Shift+B | Toggle bookmarks bar |
 | F11 | Toggle fullscreen |
 
 ## Configuration
