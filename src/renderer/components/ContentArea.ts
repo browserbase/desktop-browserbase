@@ -4,6 +4,7 @@ export class ContentArea {
   private debugView: Electron.WebviewTag | null;
   private isLoaded: boolean = false;
   private loadTimeout: ReturnType<typeof setTimeout> | null = null;
+  private acceleratedScrollEnabled: boolean = false;
 
   constructor() {
     console.log("[ContentArea] Initializing...");
@@ -18,7 +19,17 @@ export class ContentArea {
     });
 
     this.setupEventListeners();
+    void this.loadInputSettings();
     console.log("[ContentArea] Initialized successfully");
+  }
+
+  private async loadInputSettings(): Promise<void> {
+    try {
+      this.acceleratedScrollEnabled = await window.electronAPI.isAcceleratedScrollEnabled();
+      console.log("[ContentArea] Accelerated scroll:", this.acceleratedScrollEnabled);
+    } catch (error) {
+      console.warn("[ContentArea] Failed to load input settings:", error);
+    }
   }
 
   private setupEventListeners(): void {
@@ -77,6 +88,47 @@ export class ContentArea {
 
     this.debugView.addEventListener("console-message", (event) => {
       console.log("[Webview Console]", (event as any).message);
+    });
+
+    this.element?.addEventListener("wheel", (event) => this.handleWheel(event), {
+      passive: false,
+      capture: true,
+    });
+  }
+
+  private handleWheel(event: WheelEvent): void {
+    if (!this.acceleratedScrollEnabled || !this.debugView) {
+      return;
+    }
+
+    const rect = this.debugView.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const deltaScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? 16
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? rect.height
+        : 1;
+
+    window.electronAPI.dispatchScroll({
+      deltaX: event.deltaX * deltaScale,
+      deltaY: event.deltaY * deltaScale,
+      x,
+      y,
+      modifiers: {
+        ctrl: event.ctrlKey,
+        shift: event.shiftKey,
+        alt: event.altKey,
+        meta: event.metaKey,
+      },
     });
   }
 

@@ -78,6 +78,7 @@ BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500         # optional
 BROWSERBASE_AUTOMATION_SERVER=false             # optional, exposes local CDP metadata
 BROWSERBASE_AUTOMATION_PORT=0                   # optional, 0 selects a free port
+BROWSERBASE_ACCELERATED_SCROLL=false            # optional, sends wheel input over CDP
 ```
 
 For packaged app launches, especially when opening the macOS app from Finder,
@@ -106,6 +107,18 @@ and `/json/list` endpoints. Use the returned `connectUrl` or
 
 The endpoint is disabled by default because the CDP URL includes credentials for
 the Browserbase session.
+
+### Accelerated Scrolling
+
+Live view handles mouse and keyboard input by default. For human browsing on
+pages with standard scroll behavior, you can opt into CDP wheel dispatch:
+
+```bash
+BROWSERBASE_ACCELERATED_SCROLL=true npm start
+```
+
+This is disabled by default because some pages implement custom scroll behavior
+inside the live-view layer.
 
 3. Build and run:
 
