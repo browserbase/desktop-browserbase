@@ -76,6 +76,8 @@ BROWSERBASE_DEFAULT_URL=https://www.google.com  # optional
 BROWSERBASE_ASYNC_BROWSERS=true                 # optional, enables async browsers
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500         # optional
+BROWSERBASE_AUTOMATION_SERVER=false             # optional, exposes local CDP metadata
+BROWSERBASE_AUTOMATION_PORT=0                   # optional, 0 selects a free port
 ```
 
 For packaged app launches, especially when opening the macOS app from Finder,
@@ -86,6 +88,24 @@ are already present in the environment:
 - The current working directory
 - The app data directory, such as `~/Library/Application Support/Desktop Browserbase/` on macOS
 - Your home directory
+
+### Browser Automation Integrations
+
+Desktop Browserbase can expose an opt-in localhost metadata endpoint for
+automation libraries that need the active Browserbase CDP URL:
+
+```bash
+BROWSERBASE_AUTOMATION_SERVER=true npm start
+```
+
+When enabled, the app binds to `127.0.0.1` only and writes `automation.json` in
+the app data directory. The descriptor includes `/session`, `/json/version`,
+and `/json/list` endpoints. Use the returned `connectUrl` or
+`webSocketDebuggerUrl` with libraries that support CDP, such as Playwright's
+`chromium.connectOverCDP`.
+
+The endpoint is disabled by default because the CDP URL includes credentials for
+the Browserbase session.
 
 3. Build and run:
 
