@@ -9,8 +9,13 @@
  */
 
 import { ipcMain, BrowserWindow } from "electron";
-import { IPC_CHANNELS } from "../shared/types";
+import { IPC_CHANNELS, ScrollInputEvent } from "../shared/types";
 import { sessionManager } from "./session";
+
+function isAcceleratedScrollEnabled(): boolean {
+  const value = process.env.BROWSERBASE_ACCELERATED_SCROLL;
+  return !!value && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
 
 /**
  * Sets up all IPC handlers for communication between renderer and main process.
@@ -69,6 +74,18 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GET_ACCELERATED_SCROLL_ENABLED, () => {
+    return isAcceleratedScrollEnabled();
+  });
+
+  ipcMain.on(IPC_CHANNELS.INPUT_SCROLL, (_event, scrollEvent: ScrollInputEvent) => {
+    if (!isAcceleratedScrollEnabled()) {
+      return;
+    }
+
+    void sessionManager.dispatchScroll(scrollEvent);
   });
 
   // Tab handlers
