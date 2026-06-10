@@ -236,12 +236,24 @@ BROWSERBASE_ASYNC_BROWSERS=false
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500
 BROWSERBASE_PROXY_ENABLED=true
+BROWSERBASE_AUTOMATION_SERVER=false
+BROWSERBASE_AUTOMATION_PORT=0
+BROWSERBASE_ACCELERATED_SCROLL=false
 ```
 
 At startup the desktop app loads `.env` and `browserbase.env` from the current
 working directory, the Electron user data directory, and the user's home
 directory before validating required Browserbase settings. Existing environment
 variables take precedence over file values.
+
+When `BROWSERBASE_AUTOMATION_SERVER=true`, the app starts a localhost-only
+metadata server that exposes the active Browserbase CDP URL at `/session` and
+Chrome-compatible discovery data at `/json/version` and `/json/list`.
+
+When `BROWSERBASE_ACCELERATED_SCROLL=true`, wheel input over the Browserbase
+live view is captured locally and dispatched to the active remote page over CDP.
+The default remains live-view scrolling for compatibility with custom scroll
+implementations.
 
 ### App Settings (Future)
 

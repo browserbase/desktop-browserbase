@@ -18,9 +18,11 @@ import { sessionManager } from "./session";
 import { setupIpcHandlers, removeIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../shared/types";
 import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
+import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } from "./automation";
 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+let automationServer: AutomationServer | null = null;
 
 // Window state persistence
 interface WindowState {
@@ -426,6 +428,15 @@ app.whenReady().then(async () => {
     return;
   }
 
+  if (isAutomationServerEnabled()) {
+    automationServer = new AutomationServer(
+      () => sessionManager.getAutomationInfo(),
+      app.getPath("userData")
+    );
+    const automationPort = await automationServer.start(getAutomationServerPort());
+    console.log(`Automation metadata server listening on 127.0.0.1:${automationPort}`);
+  }
+
   createApplicationMenu();
   setupContentSecurityPolicy();
   await createWindow();
@@ -455,6 +466,7 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("will-quit", async () => {
+  await automationServer?.stop();
   await sessionManager.cleanup();
 });
 
