@@ -171,6 +171,7 @@ export const IPC_CHANNELS = {
 
   // Debug URL (Browserbase live view)
   GET_DEBUG_URL: "debug:get-url",
+  DEBUG_URL_LOADING: "debug:url-loading",
   DEBUG_URL_CHANGED: "debug:url-changed",
 
   // Menu actions

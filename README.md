@@ -78,6 +78,15 @@ BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500         # optional
 ```
 
+For packaged app launches, especially when opening the macOS app from Finder,
+shell exports are usually not available. The app also loads `.env` and
+`browserbase.env` files from these locations, without overriding values that
+are already present in the environment:
+
+- The current working directory
+- The app data directory, such as `~/Library/Application Support/Desktop Browserbase/` on macOS
+- Your home directory
+
 3. Build and run:
 
 ```bash
@@ -185,7 +194,8 @@ node node_modules/electron/install.js
 
 ### "Missing environment variables"
 
-Make sure `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set before running the app.
+Make sure `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set before running the app,
+or place them in `.env` or `browserbase.env` in one of the supported config locations.
 
 ### Connection issues
 
