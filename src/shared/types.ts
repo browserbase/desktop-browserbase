@@ -148,6 +148,7 @@ export const IPC_CHANNELS = {
   NAVIGATE_RELOAD: "navigate:reload",
   NAVIGATE_HOME: "navigate:home",
   URL_CHANGED: "url:changed",
+  FOCUS_URL_BAR: "navigate:focus-url-bar",
 
   // Tab management
   TABS_UPDATED: "tabs:updated",

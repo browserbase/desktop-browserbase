@@ -56,6 +56,10 @@ export class NavigationBar {
     window.electronAPI.onUrlChanged((url: string) => {
       this.updateUrl(url);
     });
+
+    window.electronAPI.onFocusUrlBar(() => {
+      this.focusUrlBar();
+    });
   }
 
   public updateUrl(url: string): void {

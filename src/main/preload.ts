@@ -66,6 +66,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.URL_CHANGED, listener);
   },
 
+  onFocusUrlBar: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.FOCUS_URL_BAR, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.FOCUS_URL_BAR, listener);
+  },
+
   onSessionCreated: (callback: (sessionId: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId);
     ipcRenderer.on(IPC_CHANNELS.SESSION_CREATED, listener);
@@ -140,6 +146,7 @@ declare global {
       toggleBookmarks: () => void;
       onTabsUpdated: (callback: (tabs: TabInfo[]) => void) => () => void;
       onUrlChanged: (callback: (url: string) => void) => () => void;
+      onFocusUrlBar: (callback: () => void) => () => void;
       onSessionCreated: (callback: (sessionId: string) => void) => () => void;
       onSessionError: (callback: (error: string) => void) => () => void;
       onSessionDisconnected: (callback: () => void) => () => void;
