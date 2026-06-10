@@ -108,6 +108,19 @@ export interface InputEvent {
   };
 }
 
+export interface ScrollInputEvent {
+  deltaX: number;
+  deltaY: number;
+  x: number;
+  y: number;
+  modifiers: {
+    ctrl: boolean;
+    shift: boolean;
+    alt: boolean;
+    meta: boolean;
+  };
+}
+
 /**
  * Information about a file download in progress or completed.
  * Used to display download progress in the downloads bar.
@@ -148,6 +161,10 @@ export const IPC_CHANNELS = {
   NAVIGATE_RELOAD: "navigate:reload",
   NAVIGATE_HOME: "navigate:home",
   URL_CHANGED: "url:changed",
+
+  // Input forwarding
+  INPUT_SCROLL: "input:scroll",
+  GET_ACCELERATED_SCROLL_ENABLED: "input:get-accelerated-scroll-enabled",
 
   // Tab management
   TABS_UPDATED: "tabs:updated",

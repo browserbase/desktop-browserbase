@@ -10,7 +10,7 @@
 
 import { chromium, Browser, CDPSession, Page, BrowserContext } from "playwright-core";
 import { BrowserWindow } from "electron";
-import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo } from "../shared/types";
+import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo, ScrollInputEvent } from "../shared/types";
 import { BrowserbaseClient, getBrowserbaseClient } from "./browserbase";
 import { AutomationSessionInfo } from "./automation";
 
@@ -42,6 +42,7 @@ export class SessionManager {
   private cdpSession: CDPSession | null = null;
   private mainWindow: BrowserWindow | null = null;
   private tabs: TabInfo[] = [];
+  private pageCdpSessions = new WeakMap<Page, CDPSession>();
   private currentUrl: string = "";
   private activeTabIndex: number = 0;
   private reconnectAttempts = 0;
@@ -354,6 +355,24 @@ export class SessionManager {
     }
   }
 
+  private async getCdpSessionForPage(page: Page): Promise<CDPSession> {
+    let cdp = this.pageCdpSessions.get(page);
+    if (!cdp) {
+      cdp = await page.context().newCDPSession(page);
+      this.pageCdpSessions.set(page, cdp);
+    }
+    return cdp;
+  }
+
+  private getCdpModifierMask(modifiers: ScrollInputEvent["modifiers"]): number {
+    let mask = 0;
+    if (modifiers.alt) mask |= 1;
+    if (modifiers.ctrl) mask |= 2;
+    if (modifiers.meta) mask |= 4;
+    if (modifiers.shift) mask |= 8;
+    return mask;
+  }
+
   private async waitForDebugUrlForPage(
     page: Page,
     timeoutMs: number = 5000,
@@ -456,6 +475,25 @@ export class SessionManager {
       await this.syncTabs();
     } catch (error) {
       console.error("Reload failed:", error);
+    }
+  }
+
+  async dispatchScroll(scrollEvent: ScrollInputEvent): Promise<void> {
+    const activePage = this.getActivePage();
+    if (!activePage) return;
+
+    try {
+      const cdp = await this.getCdpSessionForPage(activePage);
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x: Math.max(0, Math.round(scrollEvent.x)),
+        y: Math.max(0, Math.round(scrollEvent.y)),
+        deltaX: scrollEvent.deltaX,
+        deltaY: scrollEvent.deltaY,
+        modifiers: this.getCdpModifierMask(scrollEvent.modifiers),
+      });
+    } catch (error) {
+      console.error("Scroll dispatch failed:", error);
     }
   }
 
