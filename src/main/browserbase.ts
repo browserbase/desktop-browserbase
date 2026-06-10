@@ -36,6 +36,19 @@ interface BrowserbaseApiSession {
   signingKey?: string;
 }
 
+interface BrowserbaseDebugPage {
+  id?: string;
+  url?: string;
+  debuggerFullscreenUrl?: string;
+  debuggerUrl?: string;
+}
+
+interface BrowserbaseDebugInfo {
+  debuggerFullscreenUrl?: string;
+  debuggerUrl?: string;
+  pages?: BrowserbaseDebugPage[];
+}
+
 interface CreateSessionRequest {
   projectId: string;
   browserSettings: Record<string, unknown>;
@@ -186,6 +199,15 @@ export class BrowserbaseClient {
     return await response.json() as BrowserbaseApiSession;
   }
 
+  private appendNavbarParam(debugUrl: string): string {
+    return debugUrl.includes("?") ? `${debugUrl}&navbar=false` : `${debugUrl}?navbar=false`;
+  }
+
+  private getDebugUrlFromPage(page: BrowserbaseDebugPage): string | null {
+    const debugUrl = page.debuggerFullscreenUrl || page.debuggerUrl;
+    return debugUrl ? this.appendNavbarParam(debugUrl) : null;
+  }
+
   private async toReadySession(session: BrowserbaseApiSession): Promise<BrowserbaseSession> {
     if (session.status !== "RUNNING") {
       throw new Error(
@@ -320,7 +342,7 @@ export class BrowserbaseClient {
         return `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
       }
 
-      const debugInfo = await response.json() as { debuggerFullscreenUrl?: string; debuggerUrl?: string; pages?: Array<{ debuggerFullscreenUrl?: string }> };
+      const debugInfo = await response.json() as BrowserbaseDebugInfo;
       console.log("Debug info:", JSON.stringify(debugInfo, null, 2));
 
       // Use debuggerFullscreenUrl for the embedded view, hide navbar since we have our own
@@ -328,7 +350,7 @@ export class BrowserbaseClient {
         `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
 
       // Append navbar=false to hide Browserbase's navbar
-      return baseUrl.includes('?') ? `${baseUrl}&navbar=false` : `${baseUrl}?navbar=false`;
+      return this.appendNavbarParam(baseUrl);
     } catch (error) {
       console.error("Error getting debug URL:", error);
       return `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
@@ -345,7 +367,11 @@ export class BrowserbaseClient {
    * @param pageUrl - The URL of the page to find
    * @returns The debug URL for the page, or null if not found
    */
-  async getDebugUrlForPage(sessionId: string, pageUrl: string): Promise<string | null> {
+  async getDebugUrlForPage(
+    sessionId: string,
+    pageUrl: string,
+    options: { fallbackToPrimary?: boolean } = {}
+  ): Promise<string | null> {
     try {
       const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
         method: "GET",
@@ -359,10 +385,7 @@ export class BrowserbaseClient {
         return null;
       }
 
-      const debugInfo = await response.json() as {
-        debuggerFullscreenUrl?: string;
-        pages?: Array<{ id: string; url: string; debuggerFullscreenUrl?: string; debuggerUrl?: string }>
-      };
+      const debugInfo = await response.json() as BrowserbaseDebugInfo;
 
       console.log("Looking for page with URL:", pageUrl);
       console.log("Available pages:", debugInfo.pages?.map(p => ({ id: p.id, url: p.url })));
@@ -371,24 +394,64 @@ export class BrowserbaseClient {
       if (debugInfo.pages) {
         const matchingPage = debugInfo.pages.find(p => p.url === pageUrl);
         if (matchingPage) {
-          const debugUrl = matchingPage.debuggerFullscreenUrl || matchingPage.debuggerUrl;
+          const debugUrl = this.getDebugUrlFromPage(matchingPage);
           if (debugUrl) {
             console.log("Found matching page:", matchingPage.id);
-            return debugUrl.includes('?') ? `${debugUrl}&navbar=false` : `${debugUrl}?navbar=false`;
+            return debugUrl;
           }
         }
       }
 
-      // Fallback to the main debug URL (first/primary page)
-      const baseUrl = debugInfo.debuggerFullscreenUrl;
-      if (baseUrl) {
-        console.log("Using fallback primary page debug URL");
-        return baseUrl.includes('?') ? `${baseUrl}&navbar=false` : `${baseUrl}?navbar=false`;
+      if (options.fallbackToPrimary !== false) {
+        const baseUrl = debugInfo.debuggerFullscreenUrl;
+        if (baseUrl) {
+          console.log("Using fallback primary page debug URL");
+          return this.appendNavbarParam(baseUrl);
+        }
       }
 
       return null;
     } catch (error) {
       console.error("Error getting debug URL for page:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Gets the debug URL for a specific CDP target within a session.
+   *
+   * Matching by target ID is more stable than matching by URL while a new tab is
+   * still about:blank or navigating to its first page.
+   *
+   * @param sessionId - The session ID
+   * @param targetId - The CDP target ID for the page
+   * @returns The debug URL for the page, or null if not found
+   */
+  async getDebugUrlForTarget(sessionId: string, targetId: string): Promise<string | null> {
+    try {
+      const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
+        method: "GET",
+        headers: {
+          "x-bb-api-key": this.apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        console.warn("Failed to get debug URL for target from API");
+        return null;
+      }
+
+      const debugInfo = await response.json() as BrowserbaseDebugInfo;
+      const matchingPage = debugInfo.pages?.find((page) => page.id === targetId);
+
+      if (!matchingPage) {
+        return null;
+      }
+
+      console.log("Found matching target:", targetId);
+      return this.getDebugUrlFromPage(matchingPage);
+    } catch (error) {
+      console.error("Error getting debug URL for target:", error);
       return null;
     }
   }
