@@ -64,14 +64,12 @@ npm install
 
 ```bash
 export BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
-export BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 Or create a `.env` file:
 
 ```env
 BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
-BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 BROWSERBASE_DEFAULT_URL=https://www.google.com  # optional
 BROWSERBASE_ASYNC_BROWSERS=true                 # optional, enables async browsers
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
@@ -227,8 +225,8 @@ node node_modules/electron/install.js
 
 ### "Missing environment variables"
 
-Make sure `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set before running the app,
-or place them in `.env` or `browserbase.env` in one of the supported config locations.
+Make sure `BROWSERBASE_API_KEY` is set before running the app,
+or place it in `.env` or `browserbase.env` in one of the supported config locations.
 
 ### Connection issues
 
