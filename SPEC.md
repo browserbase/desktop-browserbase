@@ -70,17 +70,21 @@ An Electron application that provides a high-fidelity Chrome browser interface w
 | Session Creation | New session per app window; optional async/deferred scheduling via environment flag |
 | Authentication | Environment variables (`BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`) |
 | Stealth Mode | Advanced stealth enabled by default |
+| Protected-site Options | Optional Browserbase managed proxies, Verified Browser Mode, and CAPTCHA solving |
 
 ### Session Configuration
 
 ```typescript
 interface SessionConfig {
   projectId: string;
+  proxies?: boolean;
   scheduleMode?: "deferred";
   readyTimeoutMs?: number;
   readyPollIntervalMs?: number;
   browserSettings: {
     stealth: "advanced";
+    verified?: boolean;
+    solveCaptchas?: boolean;
     viewport: { width: number; height: number };
   };
   // Additional Browserbase session options as needed
@@ -235,7 +239,9 @@ BROWSERBASE_DEFAULT_URL=https://www.google.com
 BROWSERBASE_ASYNC_BROWSERS=false
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500
-BROWSERBASE_PROXY_ENABLED=true
+BROWSERBASE_PROXY_ENABLED=false
+BROWSERBASE_VERIFIED=false
+BROWSERBASE_SOLVE_CAPTCHAS=true
 BROWSERBASE_AUTOMATION_SERVER=false
 BROWSERBASE_AUTOMATION_PORT=0
 BROWSERBASE_ACCELERATED_SCROLL=false
@@ -245,6 +251,11 @@ At startup the desktop app loads `.env` and `browserbase.env` from the current
 working directory, the Electron user data directory, and the user's home
 directory before validating required Browserbase settings. Existing environment
 variables take precedence over file values.
+
+`BROWSERBASE_PROXY_ENABLED`, `BROWSERBASE_VERIFIED`, and
+`BROWSERBASE_SOLVE_CAPTCHAS` map directly to the corresponding Browserbase
+session options. Verified Browser Mode requires a supported Browserbase plan and
+is most effective when paired with the managed proxy network.
 
 When `BROWSERBASE_AUTOMATION_SERVER=true`, the app starts a localhost-only
 metadata server that exposes the active Browserbase CDP URL at `/session` and

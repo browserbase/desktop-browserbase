@@ -52,6 +52,7 @@ interface BrowserbaseDebugInfo {
 interface CreateSessionRequest {
   projectId: string;
   browserSettings: Record<string, unknown>;
+  proxies?: boolean;
   scheduleMode?: "deferred";
   timeout?: number;
   region?: string;
@@ -160,6 +161,25 @@ export class BrowserbaseClient {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   }
 
+  private getOptionalBooleanEnv(name: string): boolean | undefined {
+    const value = process.env[name]?.trim().toLowerCase();
+    if (!value) {
+      return undefined;
+    }
+
+    if (["1", "true", "yes", "on"].includes(value)) {
+      return true;
+    }
+
+    if (["0", "false", "no", "off"].includes(value)) {
+      return false;
+    }
+
+    throw new Error(
+      `${name} must be one of: true, false, 1, 0, yes, no, on, off`
+    );
+  }
+
   private shouldUseAsyncBrowsers(): boolean {
     const value = process.env.BROWSERBASE_ASYNC_BROWSERS;
     if (!value) {
@@ -241,9 +261,24 @@ export class BrowserbaseClient {
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
+    const proxies = config?.proxies ??
+      this.getOptionalBooleanEnv("BROWSERBASE_PROXY_ENABLED");
+    const verified = config?.browserSettings?.verified ??
+      this.getOptionalBooleanEnv("BROWSERBASE_VERIFIED");
+    const solveCaptchas = config?.browserSettings?.solveCaptchas ??
+      this.getOptionalBooleanEnv("BROWSERBASE_SOLVE_CAPTCHAS");
+
     const browserSettings: Record<string, unknown> = {
-      stealth: true,
+      stealth: config?.browserSettings?.stealth ?? true,
     };
+
+    if (verified !== undefined) {
+      browserSettings.verified = verified;
+    }
+
+    if (solveCaptchas !== undefined) {
+      browserSettings.solveCaptchas = solveCaptchas;
+    }
 
     // Add viewport if provided
     if (config?.browserSettings?.viewport) {
@@ -265,6 +300,24 @@ export class BrowserbaseClient {
       projectId: config?.projectId || this.projectId,
       browserSettings,
     };
+
+    if (proxies !== undefined) {
+      requestBody.proxies = proxies;
+    }
+
+    console.log("Browserbase session features:", {
+      stealth: browserSettings.stealth,
+      proxies: proxies ?? "API default (disabled)",
+      verified: verified ?? "API default (disabled)",
+      solveCaptchas: solveCaptchas ?? "API default (enabled)",
+    });
+
+    if (verified === true && proxies !== true) {
+      console.warn(
+        "BROWSERBASE_VERIFIED is enabled without BROWSERBASE_PROXY_ENABLED; " +
+          "Browserbase recommends pairing Verified sessions with proxies."
+      );
+    }
 
     if (scheduleMode) {
       requestBody.scheduleMode = scheduleMode;

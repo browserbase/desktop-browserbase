@@ -44,6 +44,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 - **Downloads Bar** - Download progress tracking
 - **Async Browser Sessions** - Optional deferred Browserbase session creation with readiness polling
 - **Stealth Mode** - Advanced stealth enabled by default for bot detection bypass
+- **Protected-site Options** - Optional managed proxies, Verified Browser Mode, and CAPTCHA solving
 
 ## Prerequisites
 
@@ -73,6 +74,9 @@ Or create a `.env` file:
 BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
 BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 BROWSERBASE_DEFAULT_URL=https://www.google.com  # optional
+BROWSERBASE_PROXY_ENABLED=false                 # optional, use Browserbase managed proxies
+BROWSERBASE_VERIFIED=false                      # optional, requires a supported plan
+BROWSERBASE_SOLVE_CAPTCHAS=true                 # optional, explicitly control CAPTCHA solving
 BROWSERBASE_ASYNC_BROWSERS=true                 # optional, enables async browsers
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500         # optional
@@ -89,6 +93,23 @@ are already present in the environment:
 - The current working directory
 - The app data directory, such as `~/Library/Application Support/Desktop Browserbase/` on macOS
 - Your home directory
+
+### Protected-site options
+
+For sites with stricter bot protection, enable Browserbase's managed proxy
+network and Verified Browser Mode when your plan supports it:
+
+```env
+BROWSERBASE_PROXY_ENABLED=true
+BROWSERBASE_VERIFIED=true
+BROWSERBASE_SOLVE_CAPTCHAS=true
+```
+
+These settings map directly to `proxies`, `browserSettings.verified`, and
+`browserSettings.solveCaptchas` on the Browserbase session request. Browserbase
+recommends pairing Verified sessions with proxies. These features improve
+reliability on protected sites, but individual sites may still present
+challenges or rate limits.
 
 ### Browser Automation Integrations
 

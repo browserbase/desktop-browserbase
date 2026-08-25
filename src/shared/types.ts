@@ -42,6 +42,8 @@ export type BrowserbaseSessionStatus =
 export interface SessionConfig {
   /** Browserbase project ID (usually set via environment variable) */
   projectId?: string;
+  /** Route traffic through Browserbase's managed proxy network. */
+  proxies?: boolean;
   /** Use "deferred" to provision the browser asynchronously. */
   scheduleMode?: BrowserbaseScheduleMode;
   /** Maximum time to wait for an async browser to become RUNNING. */
@@ -56,6 +58,10 @@ export interface SessionConfig {
   browserSettings?: {
     /** Enable stealth mode for bot detection bypass (default: true) */
     stealth?: boolean;
+    /** Enable Verified Browser Mode (requires a supported Browserbase plan). */
+    verified?: boolean;
+    /** Enable Browserbase CAPTCHA solving (Browserbase defaults to true). */
+    solveCaptchas?: boolean;
     /** Initial viewport dimensions */
     viewport?: ViewportConfig;
     /** Device scale factor for Retina displays (2 for macOS, 1 for others) */
