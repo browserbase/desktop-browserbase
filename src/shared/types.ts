@@ -54,11 +54,7 @@ export interface SessionConfig {
   proxies?: boolean;
   /** Browser-specific settings */
   browserSettings?: {
-    /** Legacy stealth flag. Prefer verified. */
-    stealth?: boolean;
-    /** Advanced Browser Stealth Mode (optional override; not sent by default) */
-    advancedStealth?: boolean;
-    /** Default identity/stealth mode: Verified Browser Mode (default: true) */
+    /** Verified Browser Mode (default: true) */
     verified?: boolean;
     /** Initial viewport dimensions */
     viewport?: ViewportConfig;

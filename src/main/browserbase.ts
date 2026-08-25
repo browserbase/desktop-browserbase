@@ -2,22 +2,22 @@
  * @fileoverview Browserbase API client for managing remote browser sessions.
  *
  * This module provides the BrowserbaseClient class which handles all communication
- * with the Browserbase API via the official Node SDK. It manages session creation,
- * retrieval, and cleanup, as well as obtaining debug URLs for the live view embedding.
+ * with the Browserbase REST API. It manages session creation, retrieval, and cleanup,
+ * as well as obtaining debug URLs for the live view embedding.
  *
  * @module main/browserbase
  */
 
-import Browserbase, {
-  APIError,
-  AuthenticationError,
-  PermissionDeniedError,
-  RateLimitError,
-} from "@browserbasehq/sdk";
 import { BrowserbaseSession, BrowserbaseSessionStatus, SessionConfig } from "../shared/types";
+
+/** Browserbase API base URL */
+const BROWSERBASE_API_URL = "https://api.browserbase.com/v1";
 
 /** Maximum number of retry attempts for failed API requests */
 const MAX_RETRIES = 3;
+
+/** Base delay in milliseconds between retry attempts (uses exponential backoff) */
+const RETRY_DELAY_MS = 1000;
 
 /** Default maximum time to wait for a deferred session to become RUNNING */
 const DEFAULT_SESSION_READY_TIMEOUT_MS = 120000;
@@ -28,41 +28,34 @@ const DEFAULT_SESSION_READY_POLL_INTERVAL_MS = 1500;
 /** Browserbase statuses that mean a session will never become connectable */
 const TERMINAL_SESSION_STATUSES = new Set(["COMPLETED", "TIMED_OUT", "ERROR", "STOPPED"]);
 
-type SessionCreateParams = Browserbase.SessionCreateParams;
-
-/**
- * Session create body accepted by the API. The SDK types omit a few fields the
- * Create Session API still accepts (scheduleMode, deviceScaleFactor). projectId
- * is intentionally left optional and never sent — the API infers it from the key.
- */
-type CreateSessionBody = Omit<SessionCreateParams, "browserSettings" | "projectId"> & {
-  projectId?: never;
-  scheduleMode?: "deferred";
-  browserSettings?: Browserbase.SessionCreateParams.BrowserSettings & {
-    deviceScaleFactor?: number;
-  };
-};
-
-type BrowserbaseApiSession = {
+interface BrowserbaseApiSession {
   id: string;
   status: BrowserbaseSessionStatus;
   connectUrl?: string;
   seleniumRemoteUrl?: string;
   signingKey?: string;
-};
+}
 
-type BrowserbaseDebugPage = {
+interface BrowserbaseDebugPage {
   id?: string;
   url?: string;
   debuggerFullscreenUrl?: string;
   debuggerUrl?: string;
-};
+}
 
-type BrowserbaseDebugInfo = {
+interface BrowserbaseDebugInfo {
   debuggerFullscreenUrl?: string;
   debuggerUrl?: string;
   pages?: BrowserbaseDebugPage[];
-};
+}
+
+interface CreateSessionRequest {
+  browserSettings: Record<string, unknown>;
+  proxies?: boolean;
+  scheduleMode?: "deferred";
+  timeout?: number;
+  region?: string;
+}
 
 /**
  * Client for interacting with the Browserbase API.
@@ -83,7 +76,6 @@ type BrowserbaseDebugInfo = {
  */
 export class BrowserbaseClient {
   private apiKey: string;
-  private sdk: Browserbase;
 
   constructor() {
     const apiKey = process.env.BROWSERBASE_API_KEY;
@@ -93,10 +85,58 @@ export class BrowserbaseClient {
     }
 
     this.apiKey = apiKey;
-    this.sdk = new Browserbase({
-      apiKey,
-      maxRetries: MAX_RETRIES,
-    });
+  }
+
+  /**
+   * Makes an HTTP request with automatic retry logic and exponential backoff.
+   *
+   * Retries on server errors (5xx) and rate limiting (429). Does not retry
+   * on client errors (4xx) except for rate limiting.
+   *
+   * @param url - The URL to fetch
+   * @param options - Fetch request options
+   * @param retries - Maximum number of retry attempts
+   * @returns The fetch Response object
+   * @throws Error if all retry attempts fail
+   */
+  private async fetchWithRetry(
+    url: string,
+    options: RequestInit,
+    retries: number = MAX_RETRIES
+  ): Promise<Response> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const response = await fetch(url, options);
+
+        // Don't retry client errors (4xx) except for rate limiting (429)
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          return response;
+        }
+
+        // Retry server errors (5xx) and rate limiting (429)
+        if (response.ok) {
+          return response;
+        }
+
+        if (response.status === 429 || response.status >= 500) {
+          const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+          console.log(`Request failed with ${response.status}, retrying in ${delay}ms...`);
+          await this.sleep(delay);
+          continue;
+        }
+
+        return response;
+      } catch (error) {
+        lastError = error as Error;
+        const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+        console.log(`Request failed: ${(error as Error).message}, retrying in ${delay}ms...`);
+        await this.sleep(delay);
+      }
+    }
+
+    throw lastError || new Error("Request failed after retries");
   }
 
   /** Utility function to pause execution for a specified duration */
@@ -137,36 +177,20 @@ export class BrowserbaseClient {
     );
   }
 
-  private mapCreateError(error: unknown): Error {
-    if (error instanceof AuthenticationError) {
-      return new Error("Authentication failed. Please check your BROWSERBASE_API_KEY.");
-    }
-    if (error instanceof PermissionDeniedError) {
-      return new Error("Access denied. Please check your API key permissions.");
-    }
-    if (error instanceof RateLimitError) {
-      return new Error("Rate limit exceeded. Please try again later.");
-    }
-    if (error instanceof APIError) {
-      return new Error(`Failed to create Browserbase session: ${error.message}`);
-    }
-    return error instanceof Error ? error : new Error(String(error));
-  }
-
   private async fetchSession(sessionId: string): Promise<BrowserbaseApiSession> {
-    try {
-      const session = await this.sdk.sessions.retrieve(sessionId);
-      return {
-        id: session.id,
-        status: session.status,
-        connectUrl: session.connectUrl,
-        seleniumRemoteUrl: session.seleniumRemoteUrl,
-        signingKey: session.signingKey,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to get Browserbase session: ${message}`);
+    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
+      method: "GET",
+      headers: {
+        "x-bb-api-key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to get Browserbase session: ${error}`);
     }
+
+    return await response.json() as BrowserbaseApiSession;
   }
 
   private appendNavbarParam(debugUrl: string): string {
@@ -183,12 +207,19 @@ export class BrowserbaseClient {
   }
 
   private async fetchDebugInfo(sessionId: string): Promise<BrowserbaseDebugInfo> {
-    const debugInfo = await this.sdk.sessions.debug(sessionId);
-    return {
-      debuggerFullscreenUrl: debugInfo.debuggerFullscreenUrl,
-      debuggerUrl: debugInfo.debuggerUrl,
-      pages: debugInfo.pages,
-    };
+    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
+      method: "GET",
+      headers: {
+        "x-bb-api-key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to get Browserbase debug info: ${error}`);
+    }
+
+    return await response.json() as BrowserbaseDebugInfo;
   }
 
   private async toReadySession(session: BrowserbaseApiSession): Promise<BrowserbaseSession> {
@@ -220,22 +251,16 @@ export class BrowserbaseClient {
    * polls until the browser is RUNNING and only then returns connection details.
    *
    * Every session defaults to Browserbase proxies and Verified Browser Mode.
-   * advancedStealth is omitted unless the caller sets it explicitly. projectId
-   * is omitted so the API can infer it from the key.
+   * projectId is omitted so the API can infer it from the key.
    *
    * @param config - Optional session configuration
    * @returns Session information including connection URLs
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
-    const browserSettings: NonNullable<CreateSessionBody["browserSettings"]> = {
+    const browserSettings: Record<string, unknown> = {
       verified: config?.browserSettings?.verified ?? true,
     };
-
-    // Only send advancedStealth when the caller explicitly sets it.
-    if (config?.browserSettings?.advancedStealth !== undefined) {
-      browserSettings.advancedStealth = config.browserSettings.advancedStealth;
-    }
 
     // Add viewport if provided
     if (config?.browserSettings?.viewport) {
@@ -253,7 +278,7 @@ export class BrowserbaseClient {
       this.shouldUseAsyncBrowsers() ? "deferred" : undefined
     );
 
-    const requestBody: CreateSessionBody = {
+    const requestBody: CreateSessionRequest = {
       proxies: config?.proxies ?? true,
       browserSettings,
     };
@@ -264,12 +289,11 @@ export class BrowserbaseClient {
     }
 
     if (typeof config?.timeout === "number") {
-      // SDK types this as api_timeout and serializes it as the API `timeout` field.
-      requestBody.api_timeout = config.timeout;
+      requestBody.timeout = config.timeout;
     }
 
     if (config?.region) {
-      requestBody.region = config.region as SessionCreateParams["region"];
+      requestBody.region = config.region;
     }
 
     console.log(
@@ -279,20 +303,31 @@ export class BrowserbaseClient {
       browserSettings.verified
     );
 
-    let session: BrowserbaseApiSession;
-    try {
-      const created = await this.sdk.sessions.create(requestBody);
-      session = {
-        id: created.id,
-        status: created.status,
-        connectUrl: created.connectUrl,
-        seleniumRemoteUrl: created.seleniumRemoteUrl,
-        signingKey: created.signingKey,
-      };
-    } catch (error) {
-      throw this.mapCreateError(error);
+    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-bb-api-key": this.apiKey,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      let errorMessage = `Failed to create Browserbase session: ${error}`;
+
+      if (response.status === 401) {
+        errorMessage = "Authentication failed. Please check your BROWSERBASE_API_KEY.";
+      } else if (response.status === 403) {
+        errorMessage = "Access denied. Please check your API key permissions.";
+      } else if (response.status === 429) {
+        errorMessage = "Rate limit exceeded. Please try again later.";
+      }
+
+      throw new Error(errorMessage);
     }
 
+    const session = await response.json() as BrowserbaseApiSession;
     console.log("Browserbase session created:", JSON.stringify(session, null, 2));
 
     if (session.status === "PENDING") {
@@ -429,9 +464,21 @@ export class BrowserbaseClient {
    */
   async stopSession(sessionId: string): Promise<void> {
     try {
-      await this.sdk.sessions.update(sessionId, {
-        status: "REQUEST_RELEASE",
+      const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bb-api-key": this.apiKey,
+        },
+        body: JSON.stringify({
+          status: "REQUEST_RELEASE",
+        }),
       });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`Failed to stop Browserbase session: ${error}`);
+      }
     } catch (error) {
       // Log but don't throw - this is cleanup code
       console.error("Error stopping session:", error);

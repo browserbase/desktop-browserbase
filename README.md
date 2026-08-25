@@ -1,6 +1,6 @@
 # Desktop Browserbase
 
-A high-fidelity Chrome browser interface that proxies all browsing activity through Browserbase remote browsers with advanced stealth enabled. This Electron application makes cloud browser sessions appear and behave as native desktop Chrome instances.
+A high-fidelity Chrome browser interface that proxies all browsing activity through Browserbase verified remote browsers. This Electron application makes cloud browser sessions appear and behave as native desktop Chrome instances.
 
 ## Download
 
@@ -43,7 +43,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 - **Bookmarks Bar** - Visual bookmarks bar (toggleable with Ctrl+Shift+B)
 - **Downloads Bar** - Download progress tracking
 - **Async Browser Sessions** - Optional deferred Browserbase session creation with readiness polling
-- **Stealth Mode** - Advanced stealth enabled by default for bot detection bypass
+- **Verified Browsers** - Verified Browser Mode enabled by default
 
 ## Prerequisites
 
@@ -181,7 +181,7 @@ npm run dist
 ┌─────────────────────────────────────────────────────────┐
 │                 Browserbase Cloud                       │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │     Remote Browser (Advanced Stealth Enabled)     │  │
+│  │     Remote Browser (Verified Browser Mode)        │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```

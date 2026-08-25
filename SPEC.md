@@ -2,12 +2,12 @@
 
 ## Overview
 
-An Electron application that provides a high-fidelity Chrome browser interface while proxying all browsing activity through a Browserbase remote browser with advanced stealth enabled. The app enables desktop embedding support for Browserbase remote browsers, making cloud browser sessions appear and behave as native desktop Chrome instances.
+An Electron application that provides a high-fidelity Chrome browser interface while proxying all browsing activity through a Browserbase verified remote browser. The app enables desktop embedding support for Browserbase remote browsers, making cloud browser sessions appear and behave as native desktop Chrome instances.
 
 ## Goals
 
 1. **Native Chrome Experience**: Users should feel like they're using a real Chrome browser installed on their desktop
-2. **Browserbase Integration**: All browsing happens through Browserbase's stealth-enabled remote browsers
+2. **Browserbase Integration**: All browsing happens through Browserbase verified remote browsers
 3. **Seamless Interaction**: Full mouse, keyboard, and scrolling support forwarded to the remote session
 4. **Tab Synchronization**: Local tabs mirror the tabs open in the remote Browserbase session
 
@@ -41,10 +41,10 @@ An Electron application that provides a high-fidelity Chrome browser interface w
 ┌─────────────────────────────────────────────────────────┐
 │                 Browserbase Cloud                       │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │     Remote Browser (Advanced Stealth Enabled)     │  │
+│  │     Remote Browser (Verified Browser Mode)        │  │
 │  │                                                   │  │
 │  │  - Real Chrome instance                           │  │
-│  │  - Stealth fingerprinting                         │  │
+│  │  - Verified browser identity                      │  │
 │  │  - Proxy rotation (optional)                      │  │
 │  │  - Session persistence                            │  │
 │  └───────────────────────────────────────────────────┘  │
@@ -69,7 +69,7 @@ An Electron application that provides a high-fidelity Chrome browser interface w
 | Live View | Native Browserbase live-view iframe embed |
 | Session Creation | New session per app window; optional async/deferred scheduling via environment flag |
 | Authentication | Environment variable (`BROWSERBASE_API_KEY`) |
-| Stealth Mode | Advanced stealth enabled by default |
+| Verified Browsers | Verified Browser Mode enabled by default |
 
 ### Session Configuration
 
@@ -80,7 +80,6 @@ interface SessionConfig {
   readyPollIntervalMs?: number;
   proxies?: boolean; // default true
   browserSettings: {
-    advancedStealth?: boolean; // default true
     verified?: boolean; // default true
     viewport: { width: number; height: number };
   };
@@ -265,7 +264,7 @@ implementations.
   },
   "browserbase": {
     "defaultUrl": "https://www.google.com",
-    "stealthMode": "advanced"
+    "stealthMode": "verified"
   }
 }
 ```
@@ -341,7 +340,7 @@ desktop-browserbase/
 1. **Visual**: App is visually indistinguishable from Chrome at first glance
 2. **Functional**: All navigation and tab operations work seamlessly
 3. **Performance**: Input latency < 100ms, video stream smooth at 30fps+
-4. **Stealth**: Remote sessions pass common bot detection (Cloudflare, etc.)
+4. **Verified Browsers**: Remote sessions use Verified Browser Mode by default
 5. **Stability**: No crashes during extended use sessions
 
 ## Open Questions
