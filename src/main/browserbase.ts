@@ -259,8 +259,9 @@ export class BrowserbaseClient {
    * explicitly enabled. When the API returns a PENDING session, this method
    * polls until the browser is RUNNING and only then returns connection details.
    *
-   * Every session defaults to Browserbase proxies and Verified Browser Mode.
-   * If the API key cannot use them, we retry without them and log a docs notice.
+   * Every session defaults to Verified Browser Mode and proxies (Scale).
+   * If Verified is unavailable, retry with proxies still on. If proxies are
+   * also unavailable, retry without either and log a docs notice.
    * projectId is omitted so the API can infer it from the key.
    *
    * @param config - Optional session configuration
@@ -303,27 +304,30 @@ export class BrowserbaseClient {
     }
 
     console.log("[browserbase] Creating session", { verified, proxies });
-    let response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-bb-api-key": this.apiKey,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok && (verified || proxies) && (response.status === 400 || response.status === 403)) {
-      console.log("[browserbase]", IDENTITY_NOTICE);
-      browserSettings.verified = false;
-      requestBody.proxies = false;
-      response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
+    const headers = {
+      "Content-Type": "application/json",
+      "x-bb-api-key": this.apiKey,
+    };
+    const post = () =>
+      this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-bb-api-key": this.apiKey,
-        },
+        headers,
         body: JSON.stringify(requestBody),
       });
+
+    let response = await post();
+
+    // Scale includes Verified + proxies. If Verified is denied, keep proxies on.
+    if (!response.ok && verified && (response.status === 400 || response.status === 403)) {
+      console.log("[browserbase]", IDENTITY_NOTICE);
+      browserSettings.verified = false;
+      response = await post();
+    }
+
+    if (!response.ok && proxies && (response.status === 400 || response.status === 403)) {
+      console.log("[browserbase]", IDENTITY_NOTICE);
+      requestBody.proxies = false;
+      response = await post();
     }
 
     if (!response.ok) {

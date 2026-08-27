@@ -246,9 +246,10 @@ working directory, the Electron user data directory, and the user's home
 directory before validating required Browserbase settings. Existing environment
 variables take precedence over file values.
 
-`BROWSERBASE_VERIFIED` and `BROWSERBASE_PROXIES` default to true. If the API key
-cannot use them, session create retries without Verified/proxies and logs a
-notice that the session will work much better with both, including docs links.
+`BROWSERBASE_VERIFIED` and `BROWSERBASE_PROXIES` default to true (Scale). If
+Verified is unavailable, session create retries with proxies still enabled. If
+proxies are also unavailable, it retries without either and logs a notice that
+the session will work much better with both, including docs links.
 
 When `BROWSERBASE_AUTOMATION_SERVER=true`, the app starts a localhost-only
 metadata server that exposes the active Browserbase CDP URL at `/session` and

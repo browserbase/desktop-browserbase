@@ -232,10 +232,11 @@ or place it in `.env` or `browserbase.env` in one of the supported config locati
 
 ### Verified / proxies unavailable
 
-Verified Browser Mode is Scale-only and managed proxies need a paid plan.
-Both are on by default. If the API key cannot use one, the app retries without
-them and logs that the session will work much better with Verified and
-Browserbase proxies (with docs links).
+Verified Browser Mode is Scale-only and includes proxies. Both are on by
+default. If Verified is unavailable, the app retries with proxies still on. If
+proxies are also unavailable, it retries without either and logs that the
+session will work much better with Verified and Browserbase proxies (with docs
+links).
 
 You can also opt out before launch (same notice applies):
 
