@@ -40,8 +40,6 @@ export type BrowserbaseSessionStatus =
  * Passed to the Browserbase API when initializing a new remote browser.
  */
 export interface SessionConfig {
-  /** Browserbase project ID (usually set via environment variable) */
-  projectId?: string;
   /** Use "deferred" to provision the browser asynchronously. */
   scheduleMode?: BrowserbaseScheduleMode;
   /** Maximum time to wait for an async browser to become RUNNING. */
@@ -52,10 +50,12 @@ export interface SessionConfig {
   timeout?: number;
   /** Browserbase region, such as "us-west-2". */
   region?: string;
+  /** Enable Browserbase managed proxies (default: true) */
+  proxies?: boolean;
   /** Browser-specific settings */
   browserSettings?: {
-    /** Enable stealth mode for bot detection bypass (default: true) */
-    stealth?: boolean;
+    /** Verified Browser Mode (default: true) */
+    verified?: boolean;
     /** Initial viewport dimensions */
     viewport?: ViewportConfig;
     /** Device scale factor for Retina displays (2 for macOS, 1 for others) */
@@ -207,7 +207,9 @@ export interface AppSettings {
   };
   browserbase: {
     defaultUrl: string;
-    stealthMode: "advanced";
+    stealthMode: "verified";
+    verified: boolean;
+    proxies: boolean;
   };
 }
 
@@ -219,6 +221,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   browserbase: {
     defaultUrl: "https://www.google.com",
-    stealthMode: "advanced",
+    stealthMode: "verified",
+    verified: true,
+    proxies: true,
   },
 };

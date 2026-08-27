@@ -66,16 +66,14 @@ function saveWindowState(window: BrowserWindow): void {
 // Validate environment variables
 function validateEnvironment(): boolean {
   const apiKey = process.env.BROWSERBASE_API_KEY;
-  const projectId = process.env.BROWSERBASE_PROJECT_ID;
 
-  if (!apiKey || !projectId) {
+  if (!apiKey) {
     dialog.showErrorBox(
       "Configuration Error",
-      "Missing required environment variables.\n\n" +
+      "Missing required environment variable.\n\n" +
         "Please set:\n" +
-        "- BROWSERBASE_API_KEY\n" +
-        "- BROWSERBASE_PROJECT_ID\n\n" +
-        "Set them in your shell or in one of these config files:\n" +
+        "- BROWSERBASE_API_KEY\n\n" +
+        "Set it in your shell or in one of these config files:\n" +
         getConfigSearchPaths().map((filePath) => `- ${filePath}`).join("\n") +
         "\n\nSee README.md for setup instructions."
     );

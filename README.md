@@ -1,6 +1,6 @@
 # Desktop Browserbase
 
-A high-fidelity Chrome browser interface that proxies all browsing activity through Browserbase remote browsers with advanced stealth enabled. This Electron application makes cloud browser sessions appear and behave as native desktop Chrome instances.
+A high-fidelity Chrome browser interface that proxies all browsing activity through Browserbase verified remote browsers. This Electron application makes cloud browser sessions appear and behave as native desktop Chrome instances.
 
 ## Download
 
@@ -43,7 +43,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 - **Bookmarks Bar** - Visual bookmarks bar (toggleable with Ctrl+Shift+B)
 - **Downloads Bar** - Download progress tracking
 - **Async Browser Sessions** - Optional deferred Browserbase session creation with readiness polling
-- **Stealth Mode** - Advanced stealth enabled by default for bot detection bypass
+- **Verified Browsers** - Verified Browser Mode enabled by default
 
 ## Prerequisites
 
@@ -64,14 +64,12 @@ npm install
 
 ```bash
 export BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
-export BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 Or create a `.env` file:
 
 ```env
 BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
-BROWSERBASE_PROJECT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 BROWSERBASE_DEFAULT_URL=https://www.google.com  # optional
 BROWSERBASE_ASYNC_BROWSERS=true                 # optional, enables async browsers
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
@@ -183,7 +181,7 @@ npm run dist
 ┌─────────────────────────────────────────────────────────┐
 │                 Browserbase Cloud                       │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │     Remote Browser (Advanced Stealth Enabled)     │  │
+│  │     Remote Browser (Verified Browser Mode)        │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -227,8 +225,8 @@ node node_modules/electron/install.js
 
 ### "Missing environment variables"
 
-Make sure `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set before running the app,
-or place them in `.env` or `browserbase.env` in one of the supported config locations.
+Make sure `BROWSERBASE_API_KEY` is set before running the app,
+or place it in `.env` or `browserbase.env` in one of the supported config locations.
 
 ### Connection issues
 

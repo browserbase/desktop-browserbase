@@ -50,8 +50,8 @@ interface BrowserbaseDebugInfo {
 }
 
 interface CreateSessionRequest {
-  projectId: string;
   browserSettings: Record<string, unknown>;
+  proxies?: boolean;
   scheduleMode?: "deferred";
   timeout?: number;
   region?: string;
@@ -76,21 +76,15 @@ interface CreateSessionRequest {
  */
 export class BrowserbaseClient {
   private apiKey: string;
-  private projectId: string;
 
   constructor() {
     const apiKey = process.env.BROWSERBASE_API_KEY;
-    const projectId = process.env.BROWSERBASE_PROJECT_ID;
 
     if (!apiKey) {
       throw new Error("BROWSERBASE_API_KEY environment variable is required");
     }
-    if (!projectId) {
-      throw new Error("BROWSERBASE_PROJECT_ID environment variable is required");
-    }
 
     this.apiKey = apiKey;
-    this.projectId = projectId;
   }
 
   /**
@@ -208,6 +202,26 @@ export class BrowserbaseClient {
     return debugUrl ? this.appendNavbarParam(debugUrl) : null;
   }
 
+  private fallbackDebugUrl(sessionId: string): string {
+    return `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
+  }
+
+  private async fetchDebugInfo(sessionId: string): Promise<BrowserbaseDebugInfo> {
+    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
+      method: "GET",
+      headers: {
+        "x-bb-api-key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to get Browserbase debug info: ${error}`);
+    }
+
+    return await response.json() as BrowserbaseDebugInfo;
+  }
+
   private async toReadySession(session: BrowserbaseApiSession): Promise<BrowserbaseSession> {
     if (session.status !== "RUNNING") {
       throw new Error(
@@ -236,13 +250,16 @@ export class BrowserbaseClient {
    * explicitly enabled. When the API returns a PENDING session, this method
    * polls until the browser is RUNNING and only then returns connection details.
    *
+   * Every session defaults to Browserbase proxies and Verified Browser Mode.
+   * projectId is omitted so the API can infer it from the key.
+   *
    * @param config - Optional session configuration
    * @returns Session information including connection URLs
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
     const browserSettings: Record<string, unknown> = {
-      stealth: true,
+      verified: config?.browserSettings?.verified ?? true,
     };
 
     // Add viewport if provided
@@ -262,7 +279,7 @@ export class BrowserbaseClient {
     );
 
     const requestBody: CreateSessionRequest = {
-      projectId: config?.projectId || this.projectId,
+      proxies: config?.proxies ?? true,
       browserSettings,
     };
 
@@ -279,6 +296,13 @@ export class BrowserbaseClient {
       requestBody.region = config.region;
     }
 
+    console.log(
+      "Creating session with proxies:",
+      requestBody.proxies,
+      "verified:",
+      browserSettings.verified
+    );
+
     const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
       method: "POST",
       headers: {
@@ -292,11 +316,10 @@ export class BrowserbaseClient {
       const error = await response.text();
       let errorMessage = `Failed to create Browserbase session: ${error}`;
 
-      // Provide helpful error messages
       if (response.status === 401) {
         errorMessage = "Authentication failed. Please check your BROWSERBASE_API_KEY.";
       } else if (response.status === 403) {
-        errorMessage = "Access denied. Please check your BROWSERBASE_PROJECT_ID and API key permissions.";
+        errorMessage = "Access denied. Please check your API key permissions.";
       } else if (response.status === 429) {
         errorMessage = "Rate limit exceeded. Please try again later.";
       }
@@ -330,30 +353,17 @@ export class BrowserbaseClient {
    */
   async getDebugUrl(sessionId: string): Promise<string> {
     try {
-      const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
-        method: "GET",
-        headers: {
-          "x-bb-api-key": this.apiKey,
-        },
-      });
-
-      if (!response.ok) {
-        console.warn("Failed to get debug URL from API, using fallback");
-        return `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
-      }
-
-      const debugInfo = await response.json() as BrowserbaseDebugInfo;
+      const debugInfo = await this.fetchDebugInfo(sessionId);
       console.log("Debug info:", JSON.stringify(debugInfo, null, 2));
 
       // Use debuggerFullscreenUrl for the embedded view, hide navbar since we have our own
       const baseUrl = debugInfo.debuggerFullscreenUrl || debugInfo.debuggerUrl ||
-        `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
+        this.fallbackDebugUrl(sessionId);
 
-      // Append navbar=false to hide Browserbase's navbar
       return this.appendNavbarParam(baseUrl);
     } catch (error) {
       console.error("Error getting debug URL:", error);
-      return `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
+      return this.fallbackDebugUrl(sessionId);
     }
   }
 
@@ -373,19 +383,7 @@ export class BrowserbaseClient {
     options: { fallbackToPrimary?: boolean } = {}
   ): Promise<string | null> {
     try {
-      const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
-        method: "GET",
-        headers: {
-          "x-bb-api-key": this.apiKey,
-        },
-      });
-
-      if (!response.ok) {
-        console.warn("Failed to get debug URL for page from API");
-        return null;
-      }
-
-      const debugInfo = await response.json() as BrowserbaseDebugInfo;
+      const debugInfo = await this.fetchDebugInfo(sessionId);
 
       console.log("Looking for page with URL:", pageUrl);
       console.log("Available pages:", debugInfo.pages?.map(p => ({ id: p.id, url: p.url })));
@@ -429,19 +427,7 @@ export class BrowserbaseClient {
    */
   async getDebugUrlForTarget(sessionId: string, targetId: string): Promise<string | null> {
     try {
-      const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
-        method: "GET",
-        headers: {
-          "x-bb-api-key": this.apiKey,
-        },
-      });
-
-      if (!response.ok) {
-        console.warn("Failed to get debug URL for target from API");
-        return null;
-      }
-
-      const debugInfo = await response.json() as BrowserbaseDebugInfo;
+      const debugInfo = await this.fetchDebugInfo(sessionId);
       const matchingPage = debugInfo.pages?.find((page) => page.id === targetId);
 
       if (!matchingPage) {
@@ -560,10 +546,10 @@ export class BrowserbaseClient {
   /**
    * Checks if the client has valid configuration.
    *
-   * @returns true if API key and project ID are set
+   * @returns true if API key is set
    */
   isConfigured(): boolean {
-    return !!this.apiKey && !!this.projectId;
+    return !!this.apiKey;
   }
 }
 
