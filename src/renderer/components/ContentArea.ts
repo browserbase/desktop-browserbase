@@ -211,7 +211,7 @@ export class ContentArea {
             <circle cx="24" cy="34" r="2" fill="currentColor"/>
           </svg>
           <p style="color: #202124; font-size: 16px; margin-bottom: 8px;">Connection Error</p>
-          <p style="color: #5F6368; font-size: 14px; max-width: 400px;">${this.escapeHtml(message)}</p>
+          <p style="color: #5F6368; font-size: 14px; max-width: 520px; white-space: pre-wrap; text-align: left;">${this.escapeHtml(message)}</p>
           <button onclick="window.location.reload()" style="margin-top: 16px; padding: 8px 24px; background: #1A73E8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
             Retry
           </button>

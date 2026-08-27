@@ -28,6 +28,20 @@ const DEFAULT_SESSION_READY_POLL_INTERVAL_MS = 1500;
 /** Browserbase statuses that mean a session will never become connectable */
 const TERMINAL_SESSION_STATUSES = new Set(["COMPLETED", "TIMED_OUT", "ERROR", "STOPPED"]);
 
+const IDENTITY_NOTICE =
+  "This session will work much better with Verified Browser Mode " +
+  "(https://docs.browserbase.com/platform/identity/overview) and Browserbase proxies " +
+  "(https://docs.browserbase.com/platform/identity/proxies).";
+
+function parseBooleanEnv(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (!value) {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
 interface BrowserbaseApiSession {
   id: string;
   status: BrowserbaseSessionStatus;
@@ -155,12 +169,7 @@ export class BrowserbaseClient {
   }
 
   private shouldUseAsyncBrowsers(): boolean {
-    const value = process.env.BROWSERBASE_ASYNC_BROWSERS;
-    if (!value) {
-      return false;
-    }
-
-    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+    return parseBooleanEnv("BROWSERBASE_ASYNC_BROWSERS", false);
   }
 
   private getDefaultReadyTimeoutMs(): number {
@@ -250,7 +259,9 @@ export class BrowserbaseClient {
    * explicitly enabled. When the API returns a PENDING session, this method
    * polls until the browser is RUNNING and only then returns connection details.
    *
-   * Every session defaults to Browserbase proxies and Verified Browser Mode.
+   * Every session defaults to Verified Browser Mode and proxies (Scale).
+   * If Verified is unavailable, retry with proxies still on. If proxies are
+   * also unavailable, retry without either and log a docs notice.
    * projectId is omitted so the API can infer it from the key.
    *
    * @param config - Optional session configuration
@@ -258,64 +269,70 @@ export class BrowserbaseClient {
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
-    const browserSettings: Record<string, unknown> = {
-      verified: config?.browserSettings?.verified ?? true,
-    };
+    const verified = config?.browserSettings?.verified ?? parseBooleanEnv("BROWSERBASE_VERIFIED", true);
+    const proxies = config?.proxies ?? parseBooleanEnv("BROWSERBASE_PROXIES", true);
 
-    // Add viewport if provided
+    if (!verified || !proxies) {
+      console.log("[browserbase]", IDENTITY_NOTICE);
+    }
+
+    const browserSettings: Record<string, unknown> = { verified };
     if (config?.browserSettings?.viewport) {
       browserSettings.viewport = config.browserSettings.viewport;
       console.log("Creating session with viewport:", config.browserSettings.viewport);
     }
-
-    // Add deviceScaleFactor if provided (for Retina displays)
     if (config?.browserSettings?.deviceScaleFactor) {
       browserSettings.deviceScaleFactor = config.browserSettings.deviceScaleFactor;
-      console.log("Creating session with deviceScaleFactor:", config.browserSettings.deviceScaleFactor);
+      console.log(
+        "Creating session with deviceScaleFactor:",
+        config.browserSettings.deviceScaleFactor
+      );
     }
 
-    const scheduleMode = config?.scheduleMode ?? (
-      this.shouldUseAsyncBrowsers() ? "deferred" : undefined
-    );
-
-    const requestBody: CreateSessionRequest = {
-      proxies: config?.proxies ?? true,
-      browserSettings,
-    };
-
+    const requestBody: CreateSessionRequest = { proxies, browserSettings };
+    const scheduleMode =
+      config?.scheduleMode ?? (this.shouldUseAsyncBrowsers() ? "deferred" : undefined);
     if (scheduleMode) {
       requestBody.scheduleMode = scheduleMode;
       console.log("Creating session with scheduleMode:", scheduleMode);
     }
-
     if (typeof config?.timeout === "number") {
       requestBody.timeout = config.timeout;
     }
-
     if (config?.region) {
       requestBody.region = config.region;
     }
 
-    console.log(
-      "Creating session with proxies:",
-      requestBody.proxies,
-      "verified:",
-      browserSettings.verified
-    );
+    console.log("[browserbase] Creating session", { verified, proxies });
+    const headers = {
+      "Content-Type": "application/json",
+      "x-bb-api-key": this.apiKey,
+    };
+    const post = () =>
+      this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody),
+      });
 
-    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-bb-api-key": this.apiKey,
-      },
-      body: JSON.stringify(requestBody),
-    });
+    let response = await post();
+
+    // Scale includes Verified + proxies. If Verified is denied, keep proxies on.
+    if (!response.ok && verified && (response.status === 400 || response.status === 403)) {
+      console.log("[browserbase]", IDENTITY_NOTICE);
+      browserSettings.verified = false;
+      response = await post();
+    }
+
+    if (!response.ok && proxies && (response.status === 400 || response.status === 403)) {
+      console.log("[browserbase]", IDENTITY_NOTICE);
+      requestBody.proxies = false;
+      response = await post();
+    }
 
     if (!response.ok) {
       const error = await response.text();
       let errorMessage = `Failed to create Browserbase session: ${error}`;
-
       if (response.status === 401) {
         errorMessage = "Authentication failed. Please check your BROWSERBASE_API_KEY.";
       } else if (response.status === 403) {
@@ -323,11 +340,10 @@ export class BrowserbaseClient {
       } else if (response.status === 429) {
         errorMessage = "Rate limit exceeded. Please try again later.";
       }
-
       throw new Error(errorMessage);
     }
 
-    const session = await response.json() as BrowserbaseApiSession;
+    const session = (await response.json()) as BrowserbaseApiSession;
     console.log("Browserbase session created:", JSON.stringify(session, null, 2));
 
     if (session.status === "PENDING") {

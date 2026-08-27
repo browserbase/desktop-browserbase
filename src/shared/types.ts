@@ -134,10 +134,6 @@ export interface DownloadInfo {
   state: "in_progress" | "completed" | "cancelled" | "interrupted";
 }
 
-/**
- * Session information returned by the Browserbase API.
- * Contains connection URLs for CDP and live view embedding.
- */
 export interface BrowserbaseSession {
   id: string;
   status: BrowserbaseSessionStatus;

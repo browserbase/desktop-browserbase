@@ -374,7 +374,6 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.on("did-finish-load", async () => {
     console.log("Renderer loaded, initializing Browserbase session...");
 
-    // Initialize Browserbase session
     try {
       const bbSession = await sessionManager.initialize();
       console.log("Session initialized, sending SESSION_CREATED event");
