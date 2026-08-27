@@ -107,21 +107,15 @@ function buildAgentNotice(verified: boolean, proxies: boolean): string | null {
     return null;
   }
 
-  const missing: string[] = [];
+  const recommendations: string[] = [];
   if (!verified) {
-    missing.push(`Verified Browser Mode (Scale-only: ${VERIFIED_DOCS_URL})`);
+    recommendations.push(`Verified Browser Mode (${VERIFIED_DOCS_URL})`);
   }
   if (!proxies) {
-    missing.push(`managed proxies (paid plan: ${PROXIES_DOCS_URL})`);
+    recommendations.push(`Browserbase proxies (${PROXIES_DOCS_URL})`);
   }
 
-  return [
-    "AGENT NOTICE: This Desktop Browserbase session is degraded.",
-    `Missing ${missing.join(" and ")}.`,
-    "Bot detection, IP blocks, and protected sites will fail more often.",
-    "Do not assume stealth or proxy protection is active.",
-    "Upgrade the Browserbase plan for reliable automation.",
-  ].join(" ");
+  return `This session will work much better with ${recommendations.join(" and ")}.`;
 }
 
 interface BrowserbaseApiSession {
@@ -266,7 +260,7 @@ export class BrowserbaseClient {
     console.log("[browserbase] Creating session", { verified, proxies });
   }
 
-  private logDegradedSession(
+  private logIdentityNotice(
     identity: { verified: boolean; proxies: boolean; denied: SessionCapability[] },
     reason: "plan" | "opt-out",
     apiMessage?: string
@@ -276,7 +270,7 @@ export class BrowserbaseClient {
       return;
     }
 
-    console.warn("[browserbase]", agentNotice, {
+    console.log("[browserbase]", agentNotice, {
       reason,
       verified: identity.verified,
       proxies: identity.proxies,
@@ -448,8 +442,9 @@ export class BrowserbaseClient {
    *
    * Every session defaults to Browserbase proxies and Verified Browser Mode.
    * Set BROWSERBASE_VERIFIED=false or BROWSERBASE_PROXIES=false to opt out.
-   * If the API key cannot use a requested feature, we retry without it, log an
-   * AGENT NOTICE, and stamp the session so automation clients see the degradation.
+   * If the API key cannot use a requested feature, we retry without it, log a
+   * notice pointing at Verified and proxy docs, and stamp the session so
+   * automation clients can surface the same recommendation.
    * projectId is omitted so the API can infer it from the key.
    *
    * @param config - Optional session configuration
@@ -463,7 +458,7 @@ export class BrowserbaseClient {
 
     this.logSessionCapabilities(verified, proxies);
     if (!verified || !proxies) {
-      this.logDegradedSession({ verified, proxies, denied }, "opt-out");
+      this.logIdentityNotice({ verified, proxies, denied }, "opt-out");
     }
 
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -543,7 +538,7 @@ export class BrowserbaseClient {
         this.throwSessionCreateError(response.status, error);
       }
 
-      this.logDegradedSession({ verified, proxies, denied }, "plan", apiMessage);
+      this.logIdentityNotice({ verified, proxies, denied }, "plan", apiMessage);
     }
 
     throw new Error("Failed to create Browserbase session.");
