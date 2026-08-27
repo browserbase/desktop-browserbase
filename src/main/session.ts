@@ -648,10 +648,6 @@ export class SessionManager {
       debugUrl: this.session.debugUrl,
       currentUrl: this.currentUrl,
       tabs: this.tabs,
-      verified: this.session.identity?.verified ?? true,
-      proxies: this.session.identity?.proxies ?? true,
-      denied: this.session.identity?.denied ?? [],
-      agentNotice: this.session.identity?.agentNotice ?? null,
     };
   }
 

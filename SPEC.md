@@ -247,11 +247,8 @@ directory before validating required Browserbase settings. Existing environment
 variables take precedence over file values.
 
 `BROWSERBASE_VERIFIED` and `BROWSERBASE_PROXIES` default to true. If the API key
-cannot use Verified (Scale) or managed proxies (paid plan), session create
-retries without the denied feature and logs a notice that the session will work
-much better with Verified and Browserbase proxies, including docs links. The
-same `agentNotice` is stamped on `/session`. Explicit env opt-out produces the
-same notice.
+cannot use them, session create retries without Verified/proxies and logs a
+notice that the session will work much better with both, including docs links.
 
 When `BROWSERBASE_AUTOMATION_SERVER=true`, the app starts a localhost-only
 metadata server that exposes the active Browserbase CDP URL at `/session` and

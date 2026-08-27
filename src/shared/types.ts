@@ -134,23 +134,6 @@ export interface DownloadInfo {
   state: "in_progress" | "completed" | "cancelled" | "interrupted";
 }
 
-export type SessionCapability = "verified" | "proxies";
-
-/**
- * Identity features actually used for a session, plus an agent-facing notice
- * when Verified or managed proxies are off.
- */
-export interface SessionIdentity {
-  verified: boolean;
-  proxies: boolean;
-  denied: SessionCapability[];
-  agentNotice: string | null;
-}
-
-/**
- * Session information returned by the Browserbase API.
- * Contains connection URLs for CDP and live view embedding.
- */
 export interface BrowserbaseSession {
   id: string;
   status: BrowserbaseSessionStatus;
@@ -158,7 +141,6 @@ export interface BrowserbaseSession {
   debugUrl: string;
   seleniumRemoteUrl?: string;
   signingKey?: string;
-  identity?: SessionIdentity;
 }
 
 // IPC channel names

@@ -103,9 +103,7 @@ When enabled, the app binds to `127.0.0.1` only and writes `automation.json` in
 the app data directory. The descriptor includes `/session`, `/json/version`,
 and `/json/list` endpoints. Use the returned `connectUrl` or
 `webSocketDebuggerUrl` with libraries that support CDP, such as Playwright's
-`chromium.connectOverCDP`. `/session` also reports `verified`, `proxies`,
-`denied`, and `agentNotice` so agents can recommend Verified and proxies when
-those features are off.
+`chromium.connectOverCDP`.
 
 The endpoint is disabled by default because the CDP URL includes credentials for
 the Browserbase session.
@@ -236,9 +234,8 @@ or place it in `.env` or `browserbase.env` in one of the supported config locati
 
 Verified Browser Mode is Scale-only and managed proxies need a paid plan.
 Both are on by default. If the API key cannot use one, the app retries without
-it, logs a notice that the session will work much better with Verified and
-Browserbase proxies (with docs links), and continues. The same `agentNotice` is
-on `/session`.
+them and logs that the session will work much better with Verified and
+Browserbase proxies (with docs links).
 
 You can also opt out before launch (same notice applies):
 

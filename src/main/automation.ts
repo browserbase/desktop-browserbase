@@ -10,7 +10,7 @@ import * as fs from "fs";
 import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import { AddressInfo } from "net";
 import * as path from "path";
-import { SessionCapability, TabInfo } from "../shared/types";
+import { TabInfo } from "../shared/types";
 
 const AUTOMATION_HOST = "127.0.0.1";
 
@@ -21,10 +21,6 @@ export interface AutomationSessionInfo {
   debugUrl: string;
   currentUrl: string;
   tabs: TabInfo[];
-  verified: boolean;
-  proxies: boolean;
-  denied: SessionCapability[];
-  agentNotice: string | null;
 }
 
 type SessionInfoProvider = () => AutomationSessionInfo | null;
@@ -126,9 +122,6 @@ export class AutomationServer {
         Browser: "Desktop Browserbase",
         "Protocol-Version": "1.3",
         webSocketDebuggerUrl: sessionInfo.connectUrl,
-        browserbaseVerified: sessionInfo.verified,
-        browserbaseProxies: sessionInfo.proxies,
-        browserbaseAgentNotice: sessionInfo.agentNotice,
       });
       return;
     }

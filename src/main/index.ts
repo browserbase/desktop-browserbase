@@ -82,17 +82,6 @@ function validateEnvironment(): boolean {
   return true;
 }
 
-async function initializeBrowserbaseSession(): Promise<void> {
-  try {
-    const bbSession = await sessionManager.initialize();
-    console.log("Session initialized, sending SESSION_CREATED event");
-    mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
-  } catch (error) {
-    console.error("Failed to initialize Browserbase session:", error);
-    mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
-  }
-}
-
 function createApplicationMenu(): void {
   const isMac = process.platform === "darwin";
   const switchToTab = (tabNumber: number) => {
@@ -384,7 +373,15 @@ async function createWindow(): Promise<void> {
   // Wait for renderer to be ready before initializing session
   mainWindow.webContents.on("did-finish-load", async () => {
     console.log("Renderer loaded, initializing Browserbase session...");
-    await initializeBrowserbaseSession();
+
+    try {
+      const bbSession = await sessionManager.initialize();
+      console.log("Session initialized, sending SESSION_CREATED event");
+      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
+    } catch (error) {
+      console.error("Failed to initialize Browserbase session:", error);
+      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
+    }
   });
 
   // Handle window close
