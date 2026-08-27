@@ -92,3 +92,56 @@ export function loadEnvironmentConfig(): string[] {
 
   return loadedFiles;
 }
+
+export function getUserDataEnvPath(): string {
+  return path.join(app.getPath("userData"), "browserbase.env");
+}
+
+/**
+ * Writes env values to the userData browserbase.env and applies them to
+ * process.env immediately so the current process can retry without a restart.
+ */
+export function persistEnvValues(updates: Record<string, string>): string {
+  for (const [key, value] of Object.entries(updates)) {
+    process.env[key] = value;
+  }
+
+  const filePath = getUserDataEnvPath();
+  upsertEnvValues(filePath, updates);
+  return filePath;
+}
+
+function upsertEnvValues(filePath: string, updates: Record<string, string>): void {
+  const remaining = { ...updates };
+  let lines: string[] = [];
+
+  if (fs.existsSync(filePath)) {
+    lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  }
+
+  const nextLines = lines.map((line) => {
+    const parsed = parseEnvLine(line);
+    if (!parsed) {
+      return line;
+    }
+
+    const [key] = parsed;
+    if (remaining[key] === undefined) {
+      return line;
+    }
+
+    const value = remaining[key];
+    delete remaining[key];
+    return `${key}=${value}`;
+  });
+
+  for (const [key, value] of Object.entries(remaining)) {
+    if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== "") {
+      nextLines.push("");
+    }
+    nextLines.push(`${key}=${value}`);
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${nextLines.join("\n").replace(/\n+$/, "")}\n`);
+}

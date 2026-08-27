@@ -28,6 +28,120 @@ const DEFAULT_SESSION_READY_POLL_INTERVAL_MS = 1500;
 /** Browserbase statuses that mean a session will never become connectable */
 const TERMINAL_SESSION_STATUSES = new Set(["COMPLETED", "TIMED_OUT", "ERROR", "STOPPED"]);
 
+const VERIFIED_DOCS_URL = "https://docs.browserbase.com/platform/identity/overview";
+const PROXIES_DOCS_URL = "https://docs.browserbase.com/platform/identity/proxies";
+
+export type SessionCapability = "verified" | "proxies";
+
+/**
+ * Thrown when session create is denied because Verified and/or managed proxies
+ * are not available on this API key. Not retried unless the user clicks Continue.
+ */
+export class SessionCapabilityError extends Error {
+  readonly status: number;
+  readonly denied: SessionCapability[];
+  readonly apiMessage: string;
+
+  constructor(params: {
+    status: number;
+    denied: SessionCapability[];
+    apiMessage: string;
+    userMessage: string;
+  }) {
+    super(params.userMessage);
+    this.name = "SessionCapabilityError";
+    this.status = params.status;
+    this.denied = params.denied;
+    this.apiMessage = params.apiMessage;
+  }
+}
+
+function parseBooleanEnv(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (!value) {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function extractApiErrorMessage(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return parsed.error;
+    }
+  } catch {
+    // Body is not JSON; use the raw text.
+  }
+
+  return body.trim();
+}
+
+function classifyDeniedCapabilities(
+  apiMessage: string,
+  requested: { verified: boolean; proxies: boolean }
+): SessionCapability[] {
+  const text = apiMessage.toLowerCase();
+  const denied: SessionCapability[] = [];
+
+  if (requested.verified && /verified|scale plan|scale-only/.test(text)) {
+    denied.push("verified");
+  }
+  if (requested.proxies && /prox(y|ies)/.test(text)) {
+    denied.push("proxies");
+  }
+
+  if (denied.length === 0) {
+    if (requested.verified) {
+      denied.push("verified");
+    }
+    if (requested.proxies) {
+      denied.push("proxies");
+    }
+  }
+
+  return denied;
+}
+
+function buildCapabilityErrorMessage(denied: SessionCapability[]): string {
+  const lines = [
+    "Desktop Browserbase defaults to Verified Browser Mode and managed proxies.",
+    "Those features are required for a good experience on protected sites.",
+    "",
+  ];
+
+  if (denied.includes("verified")) {
+    lines.push(
+      "Verified is Scale-only. This API key cannot create Verified sessions.",
+      `See ${VERIFIED_DOCS_URL}`,
+      ""
+    );
+  }
+
+  if (denied.includes("proxies")) {
+    lines.push(
+      "Managed proxies require a supported paid plan. This API key cannot enable them.",
+      `See ${PROXIES_DOCS_URL}`,
+      ""
+    );
+  }
+
+  lines.push("Upgrade the Browserbase plan, or opt out explicitly in .env and restart:");
+  if (denied.includes("verified")) {
+    lines.push("  BROWSERBASE_VERIFIED=false");
+  }
+  if (denied.includes("proxies")) {
+    lines.push("  BROWSERBASE_PROXIES=false");
+  }
+  lines.push("", "Do not assume Verified or proxy protection is active if either is disabled.");
+
+  return lines.join("\n");
+}
+
 interface BrowserbaseApiSession {
   id: string;
   status: BrowserbaseSessionStatus;
@@ -155,12 +269,92 @@ export class BrowserbaseClient {
   }
 
   private shouldUseAsyncBrowsers(): boolean {
-    const value = process.env.BROWSERBASE_ASYNC_BROWSERS;
-    if (!value) {
-      return false;
+    return parseBooleanEnv("BROWSERBASE_ASYNC_BROWSERS", false);
+  }
+
+  private getDefaultVerified(): boolean {
+    return parseBooleanEnv("BROWSERBASE_VERIFIED", true);
+  }
+
+  private getDefaultProxies(): boolean {
+    return parseBooleanEnv("BROWSERBASE_PROXIES", true);
+  }
+
+  private logSessionCapabilities(verified: boolean, proxies: boolean): void {
+    console.log("[browserbase] Creating session", { verified, proxies });
+
+    if (!verified) {
+      console.warn(
+        "[browserbase] Verified is off (BROWSERBASE_VERIFIED=false). " +
+          "Protected sites will fail more often. " +
+          `Verified is Scale-only: ${VERIFIED_DOCS_URL}`
+      );
     }
 
-    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+    if (!proxies) {
+      console.warn(
+        "[browserbase] Proxies are off (BROWSERBASE_PROXIES=false). " +
+          "Expect IP-based blocks. " +
+          `Managed proxies require a paid plan: ${PROXIES_DOCS_URL}`
+      );
+    }
+  }
+
+  private throwSessionCreateError(
+    status: number,
+    body: string,
+    requested: { verified: boolean; proxies: boolean }
+  ): never {
+    const apiMessage = extractApiErrorMessage(body);
+
+    if (status === 401) {
+      throw new Error("Authentication failed. Please check your BROWSERBASE_API_KEY.");
+    }
+    if (status === 429) {
+      throw new Error("Rate limit exceeded. Please try again later.");
+    }
+
+    const mentionsPaidFeature = /verified|scale plan|scale-only|prox(y|ies)|paid plan/.test(
+      apiMessage.toLowerCase()
+    );
+    const planDenied = status === 403 || (status === 400 && mentionsPaidFeature);
+    const requestedPaidFeature = requested.verified || requested.proxies;
+    if (planDenied && requestedPaidFeature) {
+      const denied = classifyDeniedCapabilities(apiMessage, requested);
+      const userMessage = buildCapabilityErrorMessage(denied);
+
+      console.error("[browserbase] Session create denied for paid identity features.", {
+        status,
+        requested,
+        denied,
+        apiMessage,
+        optOut: {
+          verified: "BROWSERBASE_VERIFIED=false",
+          proxies: "BROWSERBASE_PROXIES=false",
+        },
+        docs: {
+          verified: VERIFIED_DOCS_URL,
+          proxies: PROXIES_DOCS_URL,
+        },
+      });
+
+      throw new SessionCapabilityError({
+        status,
+        denied,
+        apiMessage,
+        userMessage,
+      });
+    }
+
+    if (status === 403) {
+      throw new Error("Access denied. Please check your API key permissions.");
+    }
+
+    throw new Error(
+      apiMessage
+        ? `Failed to create Browserbase session: ${apiMessage}`
+        : "Failed to create Browserbase session."
+    );
   }
 
   private getDefaultReadyTimeoutMs(): number {
@@ -251,6 +445,9 @@ export class BrowserbaseClient {
    * polls until the browser is RUNNING and only then returns connection details.
    *
    * Every session defaults to Browserbase proxies and Verified Browser Mode.
+   * Set BROWSERBASE_VERIFIED=false or BROWSERBASE_PROXIES=false to opt out.
+   * Plan denials fail closed unless the user clicks Continue, which persists
+   * the matching env opt-out and retries.
    * projectId is omitted so the API can infer it from the key.
    *
    * @param config - Optional session configuration
@@ -258,8 +455,12 @@ export class BrowserbaseClient {
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
+    const verified = config?.browserSettings?.verified ?? this.getDefaultVerified();
+    const proxies = config?.proxies ?? this.getDefaultProxies();
+    this.logSessionCapabilities(verified, proxies);
+
     const browserSettings: Record<string, unknown> = {
-      verified: config?.browserSettings?.verified ?? true,
+      verified,
     };
 
     // Add viewport if provided
@@ -279,7 +480,7 @@ export class BrowserbaseClient {
     );
 
     const requestBody: CreateSessionRequest = {
-      proxies: config?.proxies ?? true,
+      proxies,
       browserSettings,
     };
 
@@ -296,13 +497,6 @@ export class BrowserbaseClient {
       requestBody.region = config.region;
     }
 
-    console.log(
-      "Creating session with proxies:",
-      requestBody.proxies,
-      "verified:",
-      browserSettings.verified
-    );
-
     const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
       method: "POST",
       headers: {
@@ -314,17 +508,7 @@ export class BrowserbaseClient {
 
     if (!response.ok) {
       const error = await response.text();
-      let errorMessage = `Failed to create Browserbase session: ${error}`;
-
-      if (response.status === 401) {
-        errorMessage = "Authentication failed. Please check your BROWSERBASE_API_KEY.";
-      } else if (response.status === 403) {
-        errorMessage = "Access denied. Please check your API key permissions.";
-      } else if (response.status === 429) {
-        errorMessage = "Rate limit exceeded. Please try again later.";
-      }
-
-      throw new Error(errorMessage);
+      this.throwSessionCreateError(response.status, error, { verified, proxies });
     }
 
     const session = await response.json() as BrowserbaseApiSession;

@@ -71,6 +71,8 @@ Or create a `.env` file:
 ```env
 BROWSERBASE_API_KEY=bb_live_xxxxxxxxxxxx
 BROWSERBASE_DEFAULT_URL=https://www.google.com  # optional
+BROWSERBASE_VERIFIED=true                       # optional, Scale plan; default true
+BROWSERBASE_PROXIES=true                        # optional, paid plan; default true
 BROWSERBASE_ASYNC_BROWSERS=true                 # optional, enables async browsers
 BROWSERBASE_ASYNC_READY_TIMEOUT_MS=120000       # optional
 BROWSERBASE_ASYNC_POLL_INTERVAL_MS=1500         # optional
@@ -227,6 +229,28 @@ node node_modules/electron/install.js
 
 Make sure `BROWSERBASE_API_KEY` is set before running the app,
 or place it in `.env` or `browserbase.env` in one of the supported config locations.
+
+### "Browserbase plan required" / Access denied
+
+Verified Browser Mode is Scale-only and managed proxies need a paid plan.
+Both are on by default because they are required for a good experience.
+
+The app does not silently disable them. If your key cannot use one, startup
+shows a dialog, logs a `[browserbase]` console error, and waits:
+
+- **Quit** — exit without creating a session
+- **Continue without them** — write `BROWSERBASE_VERIFIED=false` and/or
+  `BROWSERBASE_PROXIES=false` to the app data `browserbase.env`, then retry
+
+You can also opt out yourself before launch:
+
+```env
+BROWSERBASE_VERIFIED=false
+BROWSERBASE_PROXIES=false
+```
+
+- [Verified](https://docs.browserbase.com/platform/identity/overview)
+- [Proxies](https://docs.browserbase.com/platform/identity/proxies)
 
 ### Connection issues
 

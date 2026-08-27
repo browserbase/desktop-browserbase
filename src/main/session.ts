@@ -11,7 +11,7 @@
 import { chromium, Browser, CDPSession, Page, BrowserContext } from "playwright-core";
 import { BrowserWindow } from "electron";
 import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo, ScrollInputEvent } from "../shared/types";
-import { BrowserbaseClient, getBrowserbaseClient } from "./browserbase";
+import { BrowserbaseClient, getBrowserbaseClient, SessionCapabilityError } from "./browserbase";
 import { AutomationSessionInfo } from "./automation";
 
 /**
@@ -162,7 +162,9 @@ export class SessionManager {
       return this.session;
     } catch (error) {
       console.error("Failed to initialize session:", error);
-      this.notifyError(error as Error);
+      if (!(error instanceof SessionCapabilityError)) {
+        this.notifyError(error as Error);
+      }
       throw error;
     }
   }

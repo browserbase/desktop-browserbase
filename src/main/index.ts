@@ -17,7 +17,8 @@ import * as fs from "fs";
 import { sessionManager } from "./session";
 import { setupIpcHandlers, removeIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../shared/types";
-import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
+import { getConfigSearchPaths, loadEnvironmentConfig, persistEnvValues } from "./config";
+import { SessionCapability, SessionCapabilityError } from "./browserbase";
 import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } from "./automation";
 
 let mainWindow: BrowserWindow | null = null;
@@ -80,6 +81,76 @@ function validateEnvironment(): boolean {
     return false;
   }
   return true;
+}
+
+function envUpdatesForDeniedCapabilities(denied: SessionCapability[]): Record<string, string> {
+  const updates: Record<string, string> = {};
+  if (denied.includes("verified")) {
+    updates.BROWSERBASE_VERIFIED = "false";
+  }
+  if (denied.includes("proxies")) {
+    updates.BROWSERBASE_PROXIES = "false";
+  }
+  return updates;
+}
+
+async function promptCapabilityOptOut(
+  window: BrowserWindow,
+  error: SessionCapabilityError
+): Promise<boolean> {
+  const updates = envUpdatesForDeniedCapabilities(error.denied);
+  if (Object.keys(updates).length === 0) {
+    return false;
+  }
+
+  const { response } = await dialog.showMessageBox(window, {
+    type: "warning",
+    title: "Browserbase plan required",
+    message: "Verified browsers and proxies are unavailable",
+    detail: [
+      error.message,
+      "",
+      "Continue writes the opt-out to browserbase.env and starts a session without the unavailable features. This applies to future launches too.",
+    ].join("\n"),
+    buttons: ["Quit", "Continue without them"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+
+  if (response !== 1) {
+    return false;
+  }
+
+  const filePath = persistEnvValues(updates);
+  console.warn("[browserbase] User opted out of paid identity features.", {
+    denied: error.denied,
+    persistedTo: filePath,
+    updates,
+  });
+  return true;
+}
+
+async function initializeBrowserbaseSession(): Promise<void> {
+  try {
+    const bbSession = await sessionManager.initialize();
+    console.log("Session initialized, sending SESSION_CREATED event");
+    mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
+  } catch (error) {
+    console.error("Failed to initialize Browserbase session:", error);
+
+    if (error instanceof SessionCapabilityError && mainWindow) {
+      const continued = await promptCapabilityOptOut(mainWindow, error);
+      if (continued) {
+        await initializeBrowserbaseSession();
+        return;
+      }
+      app.quit();
+      return;
+    }
+
+    mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
+  }
 }
 
 function createApplicationMenu(): void {
@@ -373,16 +444,7 @@ async function createWindow(): Promise<void> {
   // Wait for renderer to be ready before initializing session
   mainWindow.webContents.on("did-finish-load", async () => {
     console.log("Renderer loaded, initializing Browserbase session...");
-
-    // Initialize Browserbase session
-    try {
-      const bbSession = await sessionManager.initialize();
-      console.log("Session initialized, sending SESSION_CREATED event");
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
-    } catch (error) {
-      console.error("Failed to initialize Browserbase session:", error);
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
-    }
+    await initializeBrowserbaseSession();
   });
 
   // Handle window close
