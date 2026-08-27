@@ -103,7 +103,8 @@ When enabled, the app binds to `127.0.0.1` only and writes `automation.json` in
 the app data directory. The descriptor includes `/session`, `/json/version`,
 and `/json/list` endpoints. Use the returned `connectUrl` or
 `webSocketDebuggerUrl` with libraries that support CDP, such as Playwright's
-`chromium.connectOverCDP`.
+`chromium.connectOverCDP`. `/session` also reports `verified`, `proxies`,
+`denied`, and `agentNotice` so agents can see when identity features are off.
 
 The endpoint is disabled by default because the CDP URL includes credentials for
 the Browserbase session.
@@ -230,19 +231,15 @@ node node_modules/electron/install.js
 Make sure `BROWSERBASE_API_KEY` is set before running the app,
 or place it in `.env` or `browserbase.env` in one of the supported config locations.
 
-### "Browserbase plan required" / Access denied
+### Verified / proxies unavailable
 
 Verified Browser Mode is Scale-only and managed proxies need a paid plan.
-Both are on by default because they are required for a good experience.
+Both are on by default. If the API key cannot use one, the app retries without
+it, logs an `AGENT NOTICE`, and continues. Automation clients should read
+`agentNotice` from `/session` and treat a non-null value as a degraded session:
+protected sites and IP blocks will fail more often.
 
-The app does not silently disable them. If your key cannot use one, startup
-shows a dialog, logs a `[browserbase]` console error, and waits:
-
-- **Quit** — exit without creating a session
-- **Continue without them** — write `BROWSERBASE_VERIFIED=false` and/or
-  `BROWSERBASE_PROXIES=false` to the app data `browserbase.env`, then retry
-
-You can also opt out yourself before launch:
+You can also opt out before launch (same notice applies):
 
 ```env
 BROWSERBASE_VERIFIED=false

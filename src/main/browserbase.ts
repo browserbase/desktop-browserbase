@@ -8,7 +8,12 @@
  * @module main/browserbase
  */
 
-import { BrowserbaseSession, BrowserbaseSessionStatus, SessionConfig } from "../shared/types";
+import {
+  BrowserbaseSession,
+  BrowserbaseSessionStatus,
+  SessionCapability,
+  SessionConfig,
+} from "../shared/types";
 
 /** Browserbase API base URL */
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1";
@@ -30,31 +35,6 @@ const TERMINAL_SESSION_STATUSES = new Set(["COMPLETED", "TIMED_OUT", "ERROR", "S
 
 const VERIFIED_DOCS_URL = "https://docs.browserbase.com/platform/identity/overview";
 const PROXIES_DOCS_URL = "https://docs.browserbase.com/platform/identity/proxies";
-
-export type SessionCapability = "verified" | "proxies";
-
-/**
- * Thrown when session create is denied because Verified and/or managed proxies
- * are not available on this API key. Not retried unless the user clicks Continue.
- */
-export class SessionCapabilityError extends Error {
-  readonly status: number;
-  readonly denied: SessionCapability[];
-  readonly apiMessage: string;
-
-  constructor(params: {
-    status: number;
-    denied: SessionCapability[];
-    apiMessage: string;
-    userMessage: string;
-  }) {
-    super(params.userMessage);
-    this.name = "SessionCapabilityError";
-    this.status = params.status;
-    this.denied = params.denied;
-    this.apiMessage = params.apiMessage;
-  }
-}
 
 function parseBooleanEnv(name: string, fallback: boolean): boolean {
   const value = process.env[name];
@@ -107,39 +87,41 @@ function classifyDeniedCapabilities(
   return denied;
 }
 
-function buildCapabilityErrorMessage(denied: SessionCapability[]): string {
-  const lines = [
-    "Desktop Browserbase defaults to Verified Browser Mode and managed proxies.",
-    "Those features are required for a good experience on protected sites.",
-    "",
-  ];
-
-  if (denied.includes("verified")) {
-    lines.push(
-      "Verified is Scale-only. This API key cannot create Verified sessions.",
-      `See ${VERIFIED_DOCS_URL}`,
-      ""
-    );
+function isPlanDenial(
+  status: number,
+  apiMessage: string,
+  requested: { verified: boolean; proxies: boolean }
+): boolean {
+  if (!requested.verified && !requested.proxies) {
+    return false;
   }
 
-  if (denied.includes("proxies")) {
-    lines.push(
-      "Managed proxies require a supported paid plan. This API key cannot enable them.",
-      `See ${PROXIES_DOCS_URL}`,
-      ""
-    );
+  const mentionsPaidFeature = /verified|scale plan|scale-only|prox(y|ies)|paid plan/.test(
+    apiMessage.toLowerCase()
+  );
+  return status === 403 || (status === 400 && mentionsPaidFeature);
+}
+
+function buildAgentNotice(verified: boolean, proxies: boolean): string | null {
+  if (verified && proxies) {
+    return null;
   }
 
-  lines.push("Upgrade the Browserbase plan, or opt out explicitly in .env and restart:");
-  if (denied.includes("verified")) {
-    lines.push("  BROWSERBASE_VERIFIED=false");
+  const missing: string[] = [];
+  if (!verified) {
+    missing.push(`Verified Browser Mode (Scale-only: ${VERIFIED_DOCS_URL})`);
   }
-  if (denied.includes("proxies")) {
-    lines.push("  BROWSERBASE_PROXIES=false");
+  if (!proxies) {
+    missing.push(`managed proxies (paid plan: ${PROXIES_DOCS_URL})`);
   }
-  lines.push("", "Do not assume Verified or proxy protection is active if either is disabled.");
 
-  return lines.join("\n");
+  return [
+    "AGENT NOTICE: This Desktop Browserbase session is degraded.",
+    `Missing ${missing.join(" and ")}.`,
+    "Bot detection, IP blocks, and protected sites will fail more often.",
+    "Do not assume stealth or proxy protection is active.",
+    "Upgrade the Browserbase plan for reliable automation.",
+  ].join(" ");
 }
 
 interface BrowserbaseApiSession {
@@ -282,29 +264,43 @@ export class BrowserbaseClient {
 
   private logSessionCapabilities(verified: boolean, proxies: boolean): void {
     console.log("[browserbase] Creating session", { verified, proxies });
-
-    if (!verified) {
-      console.warn(
-        "[browserbase] Verified is off (BROWSERBASE_VERIFIED=false). " +
-          "Protected sites will fail more often. " +
-          `Verified is Scale-only: ${VERIFIED_DOCS_URL}`
-      );
-    }
-
-    if (!proxies) {
-      console.warn(
-        "[browserbase] Proxies are off (BROWSERBASE_PROXIES=false). " +
-          "Expect IP-based blocks. " +
-          `Managed proxies require a paid plan: ${PROXIES_DOCS_URL}`
-      );
-    }
   }
 
-  private throwSessionCreateError(
-    status: number,
-    body: string,
-    requested: { verified: boolean; proxies: boolean }
-  ): never {
+  private logDegradedSession(
+    identity: { verified: boolean; proxies: boolean; denied: SessionCapability[] },
+    reason: "plan" | "opt-out",
+    apiMessage?: string
+  ): void {
+    const agentNotice = buildAgentNotice(identity.verified, identity.proxies);
+    if (!agentNotice) {
+      return;
+    }
+
+    console.warn("[browserbase]", agentNotice, {
+      reason,
+      verified: identity.verified,
+      proxies: identity.proxies,
+      denied: identity.denied,
+      ...(apiMessage ? { apiMessage } : {}),
+    });
+  }
+
+  private attachIdentity(
+    session: BrowserbaseSession,
+    identity: { verified: boolean; proxies: boolean; denied: SessionCapability[] }
+  ): BrowserbaseSession {
+    return {
+      ...session,
+      identity: {
+        verified: identity.verified,
+        proxies: identity.proxies,
+        denied: identity.denied,
+        agentNotice: buildAgentNotice(identity.verified, identity.proxies),
+      },
+    };
+  }
+
+  private throwSessionCreateError(status: number, body: string): never {
     const apiMessage = extractApiErrorMessage(body);
 
     if (status === 401) {
@@ -313,39 +309,6 @@ export class BrowserbaseClient {
     if (status === 429) {
       throw new Error("Rate limit exceeded. Please try again later.");
     }
-
-    const mentionsPaidFeature = /verified|scale plan|scale-only|prox(y|ies)|paid plan/.test(
-      apiMessage.toLowerCase()
-    );
-    const planDenied = status === 403 || (status === 400 && mentionsPaidFeature);
-    const requestedPaidFeature = requested.verified || requested.proxies;
-    if (planDenied && requestedPaidFeature) {
-      const denied = classifyDeniedCapabilities(apiMessage, requested);
-      const userMessage = buildCapabilityErrorMessage(denied);
-
-      console.error("[browserbase] Session create denied for paid identity features.", {
-        status,
-        requested,
-        denied,
-        apiMessage,
-        optOut: {
-          verified: "BROWSERBASE_VERIFIED=false",
-          proxies: "BROWSERBASE_PROXIES=false",
-        },
-        docs: {
-          verified: VERIFIED_DOCS_URL,
-          proxies: PROXIES_DOCS_URL,
-        },
-      });
-
-      throw new SessionCapabilityError({
-        status,
-        denied,
-        apiMessage,
-        userMessage,
-      });
-    }
-
     if (status === 403) {
       throw new Error("Access denied. Please check your API key permissions.");
     }
@@ -355,6 +318,45 @@ export class BrowserbaseClient {
         ? `Failed to create Browserbase session: ${apiMessage}`
         : "Failed to create Browserbase session."
     );
+  }
+
+  private buildCreateSessionBody(
+    config: Partial<SessionConfig> | undefined,
+    capabilities: { verified: boolean; proxies: boolean }
+  ): CreateSessionRequest {
+    const browserSettings: Record<string, unknown> = {
+      verified: capabilities.verified,
+    };
+
+    if (config?.browserSettings?.viewport) {
+      browserSettings.viewport = config.browserSettings.viewport;
+    }
+
+    if (config?.browserSettings?.deviceScaleFactor) {
+      browserSettings.deviceScaleFactor = config.browserSettings.deviceScaleFactor;
+    }
+
+    const scheduleMode =
+      config?.scheduleMode ?? (this.shouldUseAsyncBrowsers() ? "deferred" : undefined);
+
+    const requestBody: CreateSessionRequest = {
+      proxies: capabilities.proxies,
+      browserSettings,
+    };
+
+    if (scheduleMode) {
+      requestBody.scheduleMode = scheduleMode;
+    }
+
+    if (typeof config?.timeout === "number") {
+      requestBody.timeout = config.timeout;
+    }
+
+    if (config?.region) {
+      requestBody.region = config.region;
+    }
+
+    return requestBody;
   }
 
   private getDefaultReadyTimeoutMs(): number {
@@ -446,8 +448,8 @@ export class BrowserbaseClient {
    *
    * Every session defaults to Browserbase proxies and Verified Browser Mode.
    * Set BROWSERBASE_VERIFIED=false or BROWSERBASE_PROXIES=false to opt out.
-   * Plan denials fail closed unless the user clicks Continue, which persists
-   * the matching env opt-out and retries.
+   * If the API key cannot use a requested feature, we retry without it, log an
+   * AGENT NOTICE, and stamp the session so automation clients see the degradation.
    * projectId is omitted so the API can infer it from the key.
    *
    * @param config - Optional session configuration
@@ -455,75 +457,96 @@ export class BrowserbaseClient {
    * @throws Error if session creation fails (auth, permissions, rate limit, etc.)
    */
   async createSession(config?: Partial<SessionConfig>): Promise<BrowserbaseSession> {
-    const verified = config?.browserSettings?.verified ?? this.getDefaultVerified();
-    const proxies = config?.proxies ?? this.getDefaultProxies();
+    let verified = config?.browserSettings?.verified ?? this.getDefaultVerified();
+    let proxies = config?.proxies ?? this.getDefaultProxies();
+    const denied: SessionCapability[] = [];
+
     this.logSessionCapabilities(verified, proxies);
-
-    const browserSettings: Record<string, unknown> = {
-      verified,
-    };
-
-    // Add viewport if provided
-    if (config?.browserSettings?.viewport) {
-      browserSettings.viewport = config.browserSettings.viewport;
-      console.log("Creating session with viewport:", config.browserSettings.viewport);
+    if (!verified || !proxies) {
+      this.logDegradedSession({ verified, proxies, denied }, "opt-out");
     }
 
-    // Add deviceScaleFactor if provided (for Retina displays)
-    if (config?.browserSettings?.deviceScaleFactor) {
-      browserSettings.deviceScaleFactor = config.browserSettings.deviceScaleFactor;
-      console.log("Creating session with deviceScaleFactor:", config.browserSettings.deviceScaleFactor);
-    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const requestBody = this.buildCreateSessionBody(config, { verified, proxies });
 
-    const scheduleMode = config?.scheduleMode ?? (
-      this.shouldUseAsyncBrowsers() ? "deferred" : undefined
-    );
+      if (config?.browserSettings?.viewport) {
+        console.log("Creating session with viewport:", config.browserSettings.viewport);
+      }
+      if (config?.browserSettings?.deviceScaleFactor) {
+        console.log(
+          "Creating session with deviceScaleFactor:",
+          config.browserSettings.deviceScaleFactor
+        );
+      }
+      if (requestBody.scheduleMode) {
+        console.log("Creating session with scheduleMode:", requestBody.scheduleMode);
+      }
 
-    const requestBody: CreateSessionRequest = {
-      proxies,
-      browserSettings,
-    };
+      const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bb-api-key": this.apiKey,
+        },
+        body: JSON.stringify(requestBody),
+      });
 
-    if (scheduleMode) {
-      requestBody.scheduleMode = scheduleMode;
-      console.log("Creating session with scheduleMode:", scheduleMode);
-    }
+      if (response.ok) {
+        const session = (await response.json()) as BrowserbaseApiSession;
+        console.log("Browserbase session created:", JSON.stringify(session, null, 2));
 
-    if (typeof config?.timeout === "number") {
-      requestBody.timeout = config.timeout;
-    }
+        if (session.status === "PENDING") {
+          console.log(`Browserbase session ${session.id} is pending; polling until RUNNING...`);
+          const ready = await this.waitForSessionReady(
+            session.id,
+            config?.readyTimeoutMs,
+            config?.readyPollIntervalMs
+          );
+          return this.attachIdentity(ready, { verified, proxies, denied });
+        }
 
-    if (config?.region) {
-      requestBody.region = config.region;
-    }
+        return this.attachIdentity(await this.toReadySession(session), {
+          verified,
+          proxies,
+          denied,
+        });
+      }
 
-    const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-bb-api-key": this.apiKey,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
       const error = await response.text();
-      this.throwSessionCreateError(response.status, error, { verified, proxies });
+      const apiMessage = extractApiErrorMessage(error);
+      const requested = { verified, proxies };
+
+      if (!isPlanDenial(response.status, apiMessage, requested)) {
+        this.throwSessionCreateError(response.status, error);
+      }
+
+      const newlyDenied = classifyDeniedCapabilities(apiMessage, requested);
+      let changed = false;
+      for (const capability of newlyDenied) {
+        if (capability === "verified" && verified) {
+          verified = false;
+          if (!denied.includes("verified")) {
+            denied.push("verified");
+          }
+          changed = true;
+        }
+        if (capability === "proxies" && proxies) {
+          proxies = false;
+          if (!denied.includes("proxies")) {
+            denied.push("proxies");
+          }
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        this.throwSessionCreateError(response.status, error);
+      }
+
+      this.logDegradedSession({ verified, proxies, denied }, "plan", apiMessage);
     }
 
-    const session = await response.json() as BrowserbaseApiSession;
-    console.log("Browserbase session created:", JSON.stringify(session, null, 2));
-
-    if (session.status === "PENDING") {
-      console.log(`Browserbase session ${session.id} is pending; polling until RUNNING...`);
-      return await this.waitForSessionReady(
-        session.id,
-        config?.readyTimeoutMs,
-        config?.readyPollIntervalMs
-      );
-    }
-
-    return await this.toReadySession(session);
+    throw new Error("Failed to create Browserbase session.");
   }
 
   /**
