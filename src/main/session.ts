@@ -13,6 +13,7 @@ import { BrowserWindow } from "electron";
 import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo, ScrollInputEvent } from "../shared/types";
 import { BrowserbaseClient, getBrowserbaseClient } from "./browserbase";
 import { AutomationSessionInfo } from "./automation";
+import { browserMirrorManager } from "./mirror/manager";
 
 /**
  * Manages the lifecycle and state of a Browserbase remote browser session.
@@ -42,7 +43,15 @@ export class SessionManager {
   private cdpSession: CDPSession | null = null;
   private mainWindow: BrowserWindow | null = null;
   private tabs: TabInfo[] = [];
-  private pageCdpSessions = new WeakMap<Page, CDPSession>();
+  private pageCdpSessions = new WeakMap<Page, Promise<CDPSession>>();
+  private targetIds = new WeakMap<Page, string>();
+  private activePage: Page | null = null;
+  private tabSyncRevision = 0;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private closing = false;
+  private initialNavigationDone = false;
+  private initialization?: Promise<BrowserbaseSession>;
+  private cleanupPromise?: Promise<void>;
   private currentUrl: string = "";
   private activeTabIndex: number = 0;
   private reconnectAttempts = 0;
@@ -80,8 +89,8 @@ export class SessionManager {
 
   private async applyViewportToPage(page: Page, width: number, height: number): Promise<void> {
     try {
-      // Always create a new CDP session for the specific page
-      const cdp = await page.context().newCDPSession(page);
+      // Share one control session per page for viewport, identity, and input.
+      const cdp = await this.getCdpSessionForPage(page);
 
       const deviceScaleFactor = process.platform === "darwin" ? 2 : 1;
 
@@ -109,7 +118,22 @@ export class SessionManager {
     }
   }
 
-  async initialize(): Promise<BrowserbaseSession> {
+  initialize(): Promise<BrowserbaseSession> {
+    if (this.closing && this.cleanupPromise) return this.cleanupPromise.then(() => {
+      this.cleanupPromise = undefined;
+      this.closing = false;
+      return this.initialize();
+    });
+    if (this.initialization) return this.initialization;
+    this.closing = false;
+    this.initialization = this.initializeSession().catch(error => {
+      this.initialization = undefined;
+      throw error;
+    });
+    return this.initialization;
+  }
+
+  private async initializeSession(): Promise<BrowserbaseSession> {
     try {
       // Calculate viewport size based on window content area
       // Chrome UI elements: tab bar (36px), nav bar (40px) = 76px total
@@ -145,6 +169,7 @@ export class SessionManager {
       const deviceScaleFactor = process.platform === 'darwin' ? 2 : 1;
 
       this.session = await this.getBrowserbaseClient().createSession({
+        keepAlive: true,
         browserSettings: {
           viewport: {
             width: viewportWidth,
@@ -155,6 +180,7 @@ export class SessionManager {
       });
       console.log(`Using deviceScaleFactor: ${deviceScaleFactor}`);
       console.log("Browserbase session created:", this.session.id);
+      if (this.closing) throw new Error("Session initialization cancelled");
 
       // Connect to the remote browser via CDP
       await this.connectToBrowser();
@@ -185,6 +211,7 @@ export class SessionManager {
       this.browser = await chromium.connectOverCDP(this.session.connectUrl, {
         timeout: 30000,
       });
+      if (this.closing) throw new Error("Browser connection cancelled");
       console.log("Connected to remote browser via CDP");
 
       // Get the default context
@@ -200,7 +227,7 @@ export class SessionManager {
       // Set up CDP session for advanced control
       const page = this.context.pages()[0];
       try {
-        this.cdpSession = await page.context().newCDPSession(page);
+        this.cdpSession = await this.getCdpSessionForPage(page);
       } catch (cdpError) {
         console.warn("Could not create CDP session:", cdpError);
         // Continue without CDP session - basic functionality still works
@@ -212,9 +239,13 @@ export class SessionManager {
       // Initial tab sync
       await this.syncTabs();
 
-      // Navigate to default URL
-      const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
-      await this.navigateTo(defaultUrl);
+      // Capture the initial navigation, and preserve browsing state on reconnect.
+      await browserMirrorManager.attachSession(this.session);
+      if (!this.initialNavigationDone) {
+        const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
+        await this.navigateTo(defaultUrl);
+        this.initialNavigationDone = true;
+      }
 
       // Apply viewport override via CDP to match actual window size
       console.log(`[Viewport] Applying initial viewport: ${this.currentViewportWidth}x${this.currentViewportHeight}`);
@@ -240,7 +271,7 @@ export class SessionManager {
       page.on("framenavigated", async (frame: any) => {
         if (frame === page.mainFrame()) {
           await this.syncTabs();
-          this.notifyUrlChanged(page.url());
+          if (page === this.getActivePage()) this.notifyUrlChanged(page.url());
         }
       });
 
@@ -278,16 +309,19 @@ export class SessionManager {
 
   private async syncTabs(): Promise<void> {
     if (!this.browser || !this.context) return;
+    const revision = ++this.tabSyncRevision;
 
     try {
       const pages = this.context.pages();
+      if (!this.activePage || !pages.includes(this.activePage)) this.activePage = pages[Math.min(this.activeTabIndex, pages.length - 1)] || null;
+      this.activeTabIndex = Math.max(0, pages.indexOf(this.activePage!));
 
       // Ensure activeTabIndex is valid
       if (this.activeTabIndex >= pages.length) {
         this.activeTabIndex = Math.max(0, pages.length - 1);
       }
 
-      this.tabs = await Promise.all(
+      const tabs = await Promise.all(
         pages.map(async (page, index) => {
           let title = "";
           let url = "";
@@ -299,9 +333,11 @@ export class SessionManager {
             // Page might be loading
           }
 
+          const targetId = await this.getTargetIdForPage(page);
+          if (!targetId) return null;
           return {
-            id: `tab-${index}`,
-            targetId: `target-${index}`,
+            id: targetId,
+            targetId,
             title: title || "New Tab",
             url: url || "about:blank",
             active: index === this.activeTabIndex,
@@ -309,6 +345,8 @@ export class SessionManager {
           };
         })
       );
+      if (revision !== this.tabSyncRevision || this.closing) return;
+      this.tabs = tabs.filter((tab): tab is NonNullable<typeof tab> => tab !== null);
 
       // Update current URL from active tab
       if (pages[this.activeTabIndex]) {
@@ -320,6 +358,7 @@ export class SessionManager {
       }
 
       this.notifyTabsUpdated();
+      browserMirrorManager.syncTabs(this.tabs);
     } catch (error) {
       console.error("Failed to sync tabs:", error);
     }
@@ -337,7 +376,7 @@ export class SessionManager {
   private getActivePage(): Page | null {
     if (!this.context) return null;
     const pages = this.context.pages();
-    return pages[this.activeTabIndex] || pages[0] || null;
+    return this.activePage && pages.includes(this.activePage) ? this.activePage : pages[0] || null;
   }
 
   private sleep(ms: number): Promise<void> {
@@ -345,10 +384,14 @@ export class SessionManager {
   }
 
   private async getTargetIdForPage(page: Page): Promise<string | null> {
+    const existing = this.targetIds.get(page);
+    if (existing) return existing;
     try {
-      const cdp = await page.context().newCDPSession(page);
+      const cdp = await this.getCdpSessionForPage(page);
       const targetInfo = await cdp.send("Target.getTargetInfo") as { targetInfo?: { targetId?: string } };
-      return targetInfo.targetInfo?.targetId || null;
+      const id = targetInfo.targetInfo?.targetId;
+      if (id) this.targetIds.set(page, id);
+      return id || null;
     } catch (error) {
       console.warn("Failed to read page target ID:", error);
       return null;
@@ -358,8 +401,9 @@ export class SessionManager {
   private async getCdpSessionForPage(page: Page): Promise<CDPSession> {
     let cdp = this.pageCdpSessions.get(page);
     if (!cdp) {
-      cdp = await page.context().newCDPSession(page);
+      cdp = page.context().newCDPSession(page);
       this.pageCdpSessions.set(page, cdp);
+      void cdp.catch(() => this.pageCdpSessions.delete(page));
     }
     return cdp;
   }
@@ -421,7 +465,7 @@ export class SessionManager {
 
     try {
       // Ensure URL has protocol
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      if (!/^(https?:|file:|about:)/i.test(url)) {
         // Check if it looks like a URL or a search query
         if (url.includes(".") && !url.includes(" ")) {
           url = `https://${url}`;
@@ -438,6 +482,9 @@ export class SessionManager {
       }
     } catch (error) {
       console.error("Navigation failed:", error);
+      if (url.startsWith("file:") && (error as Error).message.includes("ERR_BLOCKED_BY_ADMINISTRATOR")) {
+        throw new Error("This remote browser blocks file:// navigation. Uploaded files remain available to file inputs.");
+      }
       throw error;
     }
   }
@@ -502,6 +549,7 @@ export class SessionManager {
 
     try {
       const newPage = await this.context.newPage();
+      this.activePage = newPage;
       const pages = this.context.pages();
       this.activeTabIndex = pages.indexOf(newPage);
 
@@ -542,8 +590,8 @@ export class SessionManager {
     if (!this.context) return;
 
     try {
-      const tabIndex = parseInt(tabId.replace("tab-", ""), 10);
       const pages = this.context.pages();
+      const tabIndex = pages.findIndex(page => this.targetIds.get(page) === tabId);
 
       if (pages[tabIndex] && pages.length > 1) {
         await pages[tabIndex].close();
@@ -563,8 +611,7 @@ export class SessionManager {
           if (activePage) {
             setTimeout(async () => {
               try {
-                const pageUrl = activePage.url();
-                const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, pageUrl);
+                const newDebugUrl = await this.waitForDebugUrlForPage(activePage);
                 if (newDebugUrl) {
                   this.notifyDebugUrlChanged(newDebugUrl);
                 }
@@ -584,11 +631,12 @@ export class SessionManager {
     if (!this.context) return;
 
     try {
-      const tabIndex = parseInt(tabId.replace("tab-", ""), 10);
       const pages = this.context.pages();
+      const tabIndex = pages.findIndex(page => this.targetIds.get(page) === tabId);
 
       if (pages[tabIndex]) {
         await pages[tabIndex].bringToFront();
+        this.activePage = pages[tabIndex];
         this.activeTabIndex = tabIndex;
         this.notifyDebugUrlLoading();
 
@@ -603,8 +651,7 @@ export class SessionManager {
         // Get the updated debug URL for this specific page and notify renderer
         if (this.session && pages[tabIndex]) {
           try {
-            const pageUrl = pages[tabIndex].url();
-            const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(this.session.id, pageUrl);
+            const newDebugUrl = await this.waitForDebugUrlForPage(pages[tabIndex]);
             if (newDebugUrl) {
               this.notifyDebugUrlChanged(newDebugUrl);
             }
@@ -648,15 +695,20 @@ export class SessionManager {
       debugUrl: this.session.debugUrl,
       currentUrl: this.currentUrl,
       tabs: this.tabs,
+      mirror: browserMirrorManager.getStatus(),
     };
   }
 
   private handleDisconnect(): void {
+    if (this.closing || this.reconnectTimer) return;
+    void browserMirrorManager.disconnect();
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
-      setTimeout(async () => {
+      this.reconnectTimer = setTimeout(async () => {
+        this.reconnectTimer = undefined;
+        if (this.closing) return;
         try {
           await this.connectToBrowser();
           this.reconnectAttempts = 0;
@@ -708,12 +760,29 @@ export class SessionManager {
     }
   }
 
-  async cleanup(): Promise<void> {
+  cleanup(): Promise<void> {
+    if (this.cleanupPromise) return this.cleanupPromise;
+    this.closing = true;
+    this.cleanupPromise = this.performCleanup();
+    return this.cleanupPromise;
+  }
+
+  private async performCleanup(): Promise<void> {
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+    await this.initialization?.catch(() => {});
+    await browserMirrorManager.endSession();
     try {
       if (this.browser) {
         await this.browser.close();
         this.browser = null;
       }
+      this.context = null;
+      this.activePage = null;
+      this.tabs = [];
+      this.initialization = undefined;
+      this.initialNavigationDone = false;
+      this.reconnectAttempts = 0;
 
       if (this.session) {
         await this.getBrowserbaseClient().stopSession(this.session.id);

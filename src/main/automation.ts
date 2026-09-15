@@ -10,7 +10,7 @@ import * as fs from "fs";
 import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import { AddressInfo } from "net";
 import * as path from "path";
-import { TabInfo } from "../shared/types";
+import { TabInfo, MirrorStatus } from "../shared/types";
 
 const AUTOMATION_HOST = "127.0.0.1";
 
@@ -21,6 +21,7 @@ export interface AutomationSessionInfo {
   debugUrl: string;
   currentUrl: string;
   tabs: TabInfo[];
+  mirror: MirrorStatus;
 }
 
 type SessionInfoProvider = () => AutomationSessionInfo | null;

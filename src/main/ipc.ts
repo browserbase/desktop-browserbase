@@ -8,9 +8,10 @@
  * @module main/ipc
  */
 
-import { ipcMain, BrowserWindow } from "electron";
+import { ipcMain, BrowserWindow, dialog } from "electron";
 import { IPC_CHANNELS, ScrollInputEvent } from "../shared/types";
 import { sessionManager } from "./session";
+import { browserMirrorManager } from "./mirror/manager";
 
 function isAcceleratedScrollEnabled(): boolean {
   const value = process.env.BROWSERBASE_ACCELERATED_SCROLL;
@@ -29,6 +30,28 @@ function isAcceleratedScrollEnabled(): boolean {
  * @param mainWindow - The main BrowserWindow instance
  */
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
+  const mirrorHandler = (channel: string, action: (...args: any[]) => Promise<unknown>) => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      if (event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { success: false, error: "Invalid sender" };
+      try { return { success: true, status: await action(...args) }; }
+      catch (error) { return { success: false, error: (error as Error).message }; }
+    });
+  };
+  ipcMain.handle(IPC_CHANNELS.MIRROR_GET_STATUS, () => browserMirrorManager.getStatus());
+  mirrorHandler(IPC_CHANNELS.MIRROR_CHOOSE_FOLDER, async () => {
+    const selected = await dialog.showOpenDialog(mainWindow, { title: "Sync Browser to Folder", buttonLabel: "Sync Here", properties: ["openDirectory", "createDirectory"] });
+    if (selected.canceled || !selected.filePaths[0]) return browserMirrorManager.getStatus();
+    return browserMirrorManager.setFolder(selected.filePaths[0]);
+  });
+  mirrorHandler(IPC_CHANNELS.MIRROR_SET_ENABLED, async enabled => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid sync setting");
+    return browserMirrorManager.setEnabled(enabled);
+  });
+  mirrorHandler(IPC_CHANNELS.MIRROR_OPEN_FOLDER, async active => browserMirrorManager.openFolder(active === true));
+  mirrorHandler(IPC_CHANNELS.DOWNLOAD_REVEAL, async id => {
+    if (typeof id !== "string") throw new Error("Invalid download ID");
+    return browserMirrorManager.revealDownload(id);
+  });
   // Navigation handlers
   ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO, async (_event, url: string) => {
     try {

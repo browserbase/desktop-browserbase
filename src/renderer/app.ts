@@ -4,6 +4,7 @@ import { NavigationBar } from "./components/NavigationBar";
 import { BookmarksBar } from "./components/BookmarksBar";
 import { ContentArea } from "./components/ContentArea";
 import { DownloadsBar } from "./components/DownloadsBar";
+import { BrowserMirror } from "./components/BrowserMirror";
 
 class App {
   private titleBar!: TitleBar;
@@ -39,6 +40,7 @@ class App {
     this.bookmarksBar = new BookmarksBar();
     this.contentArea = new ContentArea();
     this.downloadsBar = new DownloadsBar();
+    new BrowserMirror();
 
     // Get status bar elements
     this.statusBar = document.getElementById("status-bar") as HTMLElement;

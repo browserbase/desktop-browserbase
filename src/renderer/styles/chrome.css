@@ -346,6 +346,9 @@ html, body {
   right: 0;
   margin-top: 4px;
   min-width: 240px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
   background: var(--chrome-active-tab);
   border: 1px solid var(--chrome-border);
   border-radius: 8px;
@@ -705,4 +708,24 @@ a:focus-visible {
     border-top-color: #8B4A4A;
     color: #F8D7DA;
   }
+}
+/* Browser folder sync */
+.mirror-status { font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5f6368; }
+.mirror-status[data-state="syncing"] { color: #188038; }
+.mirror-status[data-state="error"] { color: #c5221f; }
+.mirror-toggle { display: flex; justify-content: space-between; gap: 12px; cursor: pointer; }
+.mirror-toggle input { accent-color: #1a73e8; }
+.mirror-message { font-size: 11px; padding: 4px 16px 8px; max-width: 280px; overflow-wrap: anywhere; color: #5f6368; }
+.dropdown-item:disabled { opacity: 0.5; cursor: default; }
+.download-reveal { border: 0; background: transparent; color: #1a73e8; padding: 2px 0; font-size: 11px; cursor: pointer; text-align: left; }
+.download-item { flex-shrink: 0; }
+.downloads-bar { min-height: 64px; height: auto; padding-top: 4px; padding-bottom: 4px; }
+.download-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.download-filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .mirror-status { display: none; } }
+@media (prefers-color-scheme: dark) {
+  .mirror-status, .mirror-message { color: #bdc1c6; }
+  .mirror-status[data-state="syncing"] { color: #81c995; }
+  .mirror-status[data-state="error"] { color: #f28b82; }
+  .download-reveal { color: #8ab4f8; }
 }

@@ -19,6 +19,7 @@ import { setupIpcHandlers, removeIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../shared/types";
 import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
 import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } from "./automation";
+import { browserMirrorManager } from "./mirror/manager";
 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -425,6 +426,18 @@ app.whenReady().then(async () => {
     return;
   }
 
+  await browserMirrorManager.initialize();
+  browserMirrorManager.on("status", status => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.MIRROR_STATUS, status);
+  });
+  const knownDownloads = new Set<string>();
+  browserMirrorManager.on("download", download => {
+    const channel = !knownDownloads.has(download.id) ? IPC_CHANNELS.DOWNLOAD_STARTED
+      : download.syncState === "synced" ? IPC_CHANNELS.DOWNLOAD_COMPLETED : IPC_CHANNELS.DOWNLOAD_PROGRESS;
+    knownDownloads.add(download.id);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, download);
+  });
+
   if (isAutomationServerEnabled()) {
     automationServer = new AutomationServer(
       () => sessionManager.getAutomationInfo(),
@@ -462,9 +475,16 @@ app.on("window-all-closed", async () => {
   }
 });
 
-app.on("will-quit", async () => {
-  await automationServer?.stop();
-  await sessionManager.cleanup();
+let quitReady = false;
+app.on("before-quit", event => {
+  if (quitReady) return;
+  event.preventDefault();
+  void (async () => {
+    await sessionManager.cleanup();
+    await automationServer?.stop();
+    quitReady = true;
+    app.quit();
+  })();
 });
 
 // Handle uncaught exceptions

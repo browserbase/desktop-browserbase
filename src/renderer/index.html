@@ -65,6 +65,7 @@
         <input type="text" id="url-input" class="url-input" placeholder="Search Google or type a URL" autocomplete="off" spellcheck="false">
       </div>
       <div class="nav-actions">
+        <span id="mirror-status" class="mirror-status" role="status" title="Browser folder sync">Sync off</span>
         <button id="btn-bookmarks" class="nav-btn" title="Bookmarks">
           <svg width="16" height="16" viewBox="0 0 16 16">
             <path d="M4 2h8a1 1 0 011 1v11l-5-3-5 3V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" fill="none"/>
@@ -96,6 +97,12 @@
             <span class="dropdown-label">Downloads</span>
             <span class="dropdown-shortcut">⌘⇧J</span>
           </button>
+          <div class="dropdown-separator"></div>
+          <label class="dropdown-item mirror-toggle"><span>Sync browser to folder</span><input id="mirror-enabled" type="checkbox"></label>
+          <button class="dropdown-item" data-mirror-action="choose">Choose sync folder...</button>
+          <button class="dropdown-item" data-mirror-action="open" disabled>Open browser folder</button>
+          <button class="dropdown-item" data-mirror-action="active" disabled>Open current tab's folder</button>
+          <div id="mirror-message" class="mirror-message" role="status"></div>
           <div class="dropdown-separator"></div>
           <button class="dropdown-item" data-action="zoom-in">
             <span class="dropdown-label">Zoom in</span>

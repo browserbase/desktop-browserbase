@@ -40,6 +40,8 @@ export type BrowserbaseSessionStatus =
  * Passed to the Browserbase API when initializing a new remote browser.
  */
 export interface SessionConfig {
+  /** Keep remote sessions alive while individual CDP clients reconnect. */
+  keepAlive?: boolean;
   /** Use "deferred" to provision the browser asynchronously. */
   scheduleMode?: BrowserbaseScheduleMode;
   /** Maximum time to wait for an async browser to become RUNNING. */
@@ -68,7 +70,7 @@ export interface SessionConfig {
  * Synchronized from Playwright pages and sent to the renderer for UI updates.
  */
 export interface TabInfo {
-  /** Unique tab identifier (format: "tab-{index}") */
+  /** Stable CDP target identifier. */
   id: string;
   /** CDP target ID for the page */
   targetId: string;
@@ -132,6 +134,27 @@ export interface DownloadInfo {
   totalBytes: number;
   receivedBytes: number;
   state: "in_progress" | "completed" | "cancelled" | "interrupted";
+  pageId?: string;
+  localPath?: string;
+  syncState?: "pending" | "syncing" | "synced" | "error";
+  error?: string;
+}
+
+export interface MirrorStatus {
+  enabled: boolean;
+  state: "disabled" | "waiting" | "connecting" | "syncing" | "reconnecting" | "error";
+  directory: string | null;
+  sessionId?: string;
+  activePageId?: string;
+  frames: number;
+  pendingFrames: number;
+  lastFrameAt?: string;
+  error?: string;
+}
+
+export interface MirrorSettings {
+  enabled: boolean;
+  parentDirectory: string | null;
 }
 
 export interface BrowserbaseSession {
@@ -141,6 +164,7 @@ export interface BrowserbaseSession {
   debugUrl: string;
   seleniumRemoteUrl?: string;
   signingKey?: string;
+  keepAlive?: boolean;
 }
 
 // IPC channel names
@@ -173,6 +197,13 @@ export const IPC_CHANNELS = {
   DOWNLOAD_STARTED: "download:started",
   DOWNLOAD_PROGRESS: "download:progress",
   DOWNLOAD_COMPLETED: "download:completed",
+  DOWNLOAD_REVEAL: "download:reveal",
+
+  MIRROR_GET_STATUS: "mirror:get-status",
+  MIRROR_CHOOSE_FOLDER: "mirror:choose-folder",
+  MIRROR_SET_ENABLED: "mirror:set-enabled",
+  MIRROR_OPEN_FOLDER: "mirror:open-folder",
+  MIRROR_STATUS: "mirror:status",
 
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",

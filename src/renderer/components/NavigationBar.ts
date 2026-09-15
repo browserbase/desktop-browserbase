@@ -41,11 +41,16 @@ export class NavigationBar {
       if (e.key === "Enter") {
         const url = this.urlInput?.value.trim();
         if (url) {
-          window.electronAPI.navigateTo(url);
-          this.urlInput?.blur();
+          void window.electronAPI.navigateTo(url).then(result => {
+            this.urlInput?.setCustomValidity(result.success ? "" : result.error || "Navigation failed");
+            if (result.success) this.urlInput?.blur();
+            else this.urlInput?.reportValidity();
+          });
         }
       }
     });
+
+    this.urlInput?.addEventListener("input", () => this.urlInput?.setCustomValidity(""));
 
     // Select all on focus
     this.urlInput?.addEventListener("focus", () => {

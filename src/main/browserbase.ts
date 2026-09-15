@@ -48,6 +48,7 @@ interface BrowserbaseApiSession {
   connectUrl?: string;
   seleniumRemoteUrl?: string;
   signingKey?: string;
+  keepAlive?: boolean;
 }
 
 interface BrowserbaseDebugPage {
@@ -64,6 +65,7 @@ interface BrowserbaseDebugInfo {
 }
 
 interface CreateSessionRequest {
+  keepAlive?: boolean;
   browserSettings: Record<string, unknown>;
   proxies?: boolean;
   scheduleMode?: "deferred";
@@ -249,6 +251,7 @@ export class BrowserbaseClient {
       debugUrl,
       seleniumRemoteUrl: session.seleniumRemoteUrl,
       signingKey: session.signingKey,
+      keepAlive: session.keepAlive,
     };
   }
 
@@ -290,6 +293,7 @@ export class BrowserbaseClient {
     }
 
     const requestBody: CreateSessionRequest = { proxies, browserSettings };
+    if (config?.keepAlive !== undefined) requestBody.keepAlive = config.keepAlive;
     const scheduleMode =
       config?.scheduleMode ?? (this.shouldUseAsyncBrowsers() ? "deferred" : undefined);
     if (scheduleMode) {
@@ -327,6 +331,13 @@ export class BrowserbaseClient {
     if (!response.ok && proxies && (response.status === 400 || response.status === 403)) {
       console.log("[browserbase]", IDENTITY_NOTICE);
       requestBody.proxies = false;
+      response = await post();
+    }
+
+    if (!response.ok && requestBody.keepAlive && (response.status === 400 || response.status === 403) &&
+        /keep.?alive/i.test(await response.clone().text())) {
+      requestBody.keepAlive = false;
+      console.warn("Keep-alive is unavailable for this project; folder sync requires a paid Browserbase plan.");
       response = await post();
     }
 

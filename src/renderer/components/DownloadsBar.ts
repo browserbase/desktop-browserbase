@@ -58,7 +58,7 @@ export class DownloadsBar {
 
     // Check if all downloads are complete
     const allComplete = Array.from(this.downloads.values()).every(
-      (d) => d.state === "completed" || d.state === "cancelled"
+      (d) => d.syncState === "synced" || d.state === "cancelled"
     );
 
     if (allComplete) {
@@ -90,6 +90,12 @@ export class DownloadsBar {
         btn.addEventListener("click", () => this.removeDownload(id));
       }
     });
+    this.container.querySelectorAll<HTMLButtonElement>(".download-reveal").forEach(button => {
+      button.addEventListener("click", async () => {
+        const result = await window.electronAPI.revealDownload(button.dataset.downloadId!);
+        if (!result.success) button.textContent = result.error || "File unavailable";
+      });
+    });
   }
 
   private renderDownloadItem(download: DownloadInfo): string {
@@ -105,7 +111,8 @@ export class DownloadsBar {
         <div class="download-icon">${icon}</div>
         <div class="download-info">
           <div class="download-filename">${this.escapeHtml(download.filename)}</div>
-          <div class="download-status">${statusText}</div>
+          <div class="download-status">${this.escapeHtml(statusText)}</div>
+          ${download.localPath ? `<button class="download-reveal" data-download-id="${download.id}">Show in folder</button>` : ""}
           ${download.state === "in_progress" ? `
             <div class="download-progress">
               <div class="download-progress-bar" style="width: ${progress}%"></div>
@@ -132,7 +139,7 @@ export class DownloadsBar {
         const total = this.formatBytes(download.totalBytes);
         return `${received} of ${total} (${progress}%)`;
       case "completed":
-        return "Completed";
+        return download.syncState === "synced" ? "Saved locally" : download.syncState === "error" ? download.error || "Sync failed" : "Syncing to this computer...";
       case "cancelled":
         return "Cancelled";
       case "interrupted":
@@ -143,7 +150,7 @@ export class DownloadsBar {
   }
 
   private getIcon(download: DownloadInfo): string {
-    if (download.state === "completed") {
+    if (download.syncState === "synced") {
       return `
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="10" stroke="#188038" stroke-width="2"/>
@@ -173,7 +180,6 @@ export class DownloadsBar {
 
   public hide(): void {
     this.element.classList.add("hidden");
-    this.downloads.clear();
     if (this.autoHideTimeout) {
       clearTimeout(this.autoHideTimeout);
       this.autoHideTimeout = null;

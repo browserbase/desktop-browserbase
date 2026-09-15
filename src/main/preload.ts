@@ -16,13 +16,25 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC_CHANNELS, TabInfo } from "../shared/types";
+import { IPC_CHANNELS, TabInfo, MirrorStatus } from "../shared/types";
+
+type MirrorResult = { success: boolean; error?: string; status?: MirrorStatus };
 
 /**
  * Expose the electronAPI to the renderer process via contextBridge.
  * All methods are safe to call from the renderer and communicate via IPC.
  */
 contextBridge.exposeInMainWorld("electronAPI", {
+  getMirrorStatus: () => ipcRenderer.invoke(IPC_CHANNELS.MIRROR_GET_STATUS),
+  chooseMirrorFolder: () => ipcRenderer.invoke(IPC_CHANNELS.MIRROR_CHOOSE_FOLDER),
+  setMirrorEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.MIRROR_SET_ENABLED, enabled),
+  openMirrorFolder: (active: boolean) => ipcRenderer.invoke(IPC_CHANNELS.MIRROR_OPEN_FOLDER, active),
+  revealDownload: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_REVEAL, id),
+  onMirrorStatus: (callback: (status: MirrorStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: MirrorStatus) => callback(status);
+    ipcRenderer.on(IPC_CHANNELS.MIRROR_STATUS, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MIRROR_STATUS, listener);
+  },
   // Navigation
   navigateTo: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.NAVIGATE_TO, url),
   navigateBack: () => ipcRenderer.invoke(IPC_CHANNELS.NAVIGATE_BACK),
@@ -135,6 +147,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
 declare global {
   interface Window {
     electronAPI: {
+      getMirrorStatus: () => Promise<MirrorStatus>;
+      chooseMirrorFolder: () => Promise<MirrorResult>;
+      setMirrorEnabled: (enabled: boolean) => Promise<MirrorResult>;
+      openMirrorFolder: (active: boolean) => Promise<MirrorResult>;
+      revealDownload: (id: string) => Promise<MirrorResult>;
+      onMirrorStatus: (callback: (status: MirrorStatus) => void) => () => void;
       navigateTo: (url: string) => Promise<{ success: boolean; error?: string }>;
       navigateBack: () => Promise<{ success: boolean; error?: string }>;
       navigateForward: () => Promise<{ success: boolean; error?: string }>;
