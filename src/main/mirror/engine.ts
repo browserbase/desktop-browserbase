@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "crypto";
 import { setTimeout as delay } from "timers/promises";
 import { DownloadInfo, TabInfo } from "../../shared/types";
 import { atomicWrite, FileQueue, readJson, safeId } from "./files";
-import { ArchiveFile } from "./transfers";
+import { ArchiveFile, DownloadLimitError } from "./transfers";
 
 interface Transport extends EventEmitter {
   send(method: string, params?: any, sessionId?: string): Promise<any>;
@@ -47,6 +47,7 @@ export class MirrorEngine extends EventEmitter {
   private downloadTimer?: ReturnType<typeof setTimeout>;
   private downloadBusy = false;
   private downloadRequested = false;
+  private downloadLimitError?: string;
   private stopPromise?: Promise<void>;
   private stopped = false;
   private activePageId?: string;
@@ -318,6 +319,9 @@ export class MirrorEngine extends EventEmitter {
     record.receivedBytes = params.receivedBytes; record.totalBytes = params.totalBytes;
     record.state = params.state === "canceled" ? "cancelled" : params.state === "completed" ? "completed" : "in_progress";
     record.updatedAt = new Date().toISOString();
+    if (record.state === "completed" && this.downloadLimitError && record.syncState !== "synced") {
+      record.syncState = "error"; record.error = this.downloadLimitError;
+    }
     await this.log(page, "downloads.log", { event: "downloadProgress", params });
     await this.metadata(page);
     this.emit("download", { ...record });
@@ -325,7 +329,7 @@ export class MirrorEngine extends EventEmitter {
   }
 
   private scheduleDownloads(): void {
-    if (this.stopped || ![...this.downloads.values()].some(d => d.state === "completed" && d.syncState !== "synced")) return;
+    if (this.stopped || this.downloadLimitError || ![...this.downloads.values()].some(d => d.state === "completed" && d.syncState !== "synced")) return;
     if (this.downloadBusy) { this.downloadRequested = true; return; }
     if (this.downloadTimer) return;
     this.downloadTimer = setTimeout(() => {
@@ -360,6 +364,16 @@ export class MirrorEngine extends EventEmitter {
           await this.preserveUnattributedFiles(files);
         } catch (error) {
           if (this.stopped) break;
+          if (error instanceof DownloadLimitError) {
+            this.downloadLimitError = error.message;
+            for (const record of this.downloads.values()) {
+              if (record.state !== "completed" || record.syncState === "synced") continue;
+              record.syncState = "error"; record.error = error.message;
+              await this.metadata(this.pages.get(record.pageId!)!);
+              this.emit("download", { ...record });
+            }
+            break;
+          }
           for (const record of waiting) if (record.syncState !== "synced") record.error = (error as Error).message;
         } finally { await fs.rm(temporary, { recursive: true, force: true }); }
         for (const record of waiting) {

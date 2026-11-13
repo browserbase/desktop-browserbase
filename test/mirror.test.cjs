@@ -202,3 +202,21 @@ test('atomic replacement leaves no temporary files after rapid writes', async t 
   await Promise.all(Array.from({ length: 50 }, (_, i) => atomicWrite(path.join(dir, 'frame.jpg'), Buffer.from(String(i)))));
   assert.deepEqual(await fs.readdir(dir), ['frame.jpg']);
 });
+
+test('terminal archive limits stop retries and mark later downloads without fetching again', async t => {
+  const { DownloadLimitError } = require('../dist/main/mirror/transfers');
+  let attempts = 0;
+  const { client, json } = await fixture(t, { downloads: async () => {
+    attempts++; throw new DownloadLimitError('Download archive exceeds the expanded size limit');
+  } });
+  const complete = id => {
+    client.event('Browser.downloadWillBegin', { guid: id, frameId: 'frame-A', suggestedFilename: `${id}.txt`, url: 'https://example.test/file' });
+    client.event('Browser.downloadProgress', { guid: id, receivedBytes: 8, totalBytes: 8, state: 'completed' });
+  };
+  complete('first');
+  await eventually(async () => assert.equal((await json('A/metadata.json')).downloads[0].syncState, 'error'));
+  complete('second');
+  await eventually(async () => assert.equal((await json('A/metadata.json')).downloads[1].syncState, 'error'));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(attempts, 1);
+});

@@ -167,6 +167,11 @@ An unclean app termination leaves the remote session running until its timeout.
   archive. Archive availability is retried. Files without an unambiguous match
   are preserved under `_unattributed/downloads/`, with their metadata in
   `_unattributed/metadata.json`; they are never guessed into another tab's folder.
+  Each archive is limited to 256 MiB downloaded, 1 GiB expanded, 512 MiB per
+  file, and 10,000 entries (including directories). Exceeding a limit stops
+  download-sync retries for that session and reports an error for unsynced
+  downloads. Browsing and other mirror output continue; an explicit sync
+  restart or new session resets the limit error. These limits do not cap logs.
 - Drop files directly into a page's `uploads/` directory to upload them. Metadata
   records the resulting `remotePath` and `fileUrl`. Remote filenames include a
   page prefix to prevent collisions between tabs. Open the recorded `file://`
