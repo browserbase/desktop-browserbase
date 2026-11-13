@@ -365,23 +365,28 @@ async function createWindow(): Promise<void> {
   // Load the renderer HTML
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 
-  // Wait for renderer to be ready before initializing session
-  mainWindow.webContents.on("did-finish-load", async () => {
+  // Keep this callback tied to its window while initialization is in flight.
+  const window = mainWindow;
+  const isCurrentWindow = () => !window.isDestroyed() && mainWindow === window;
+  window.webContents.on("did-finish-load", async () => {
+    if (!isCurrentWindow()) return;
     console.log("Renderer loaded, initializing Browserbase session...");
 
     try {
       // Measure before provisioning so the initial remote surface matches the guest.
-      const viewport = parseViewport(await mainWindow?.webContents.executeJavaScript(`(() => {
+      const viewport = parseViewport(await window.webContents.executeJavaScript(`(() => {
         const rect = document.getElementById("live-view-frame")?.getBoundingClientRect();
         return rect ? { width: Math.round(rect.width), height: Math.round(rect.height) } : null;
       })()`));
+      if (!isCurrentWindow()) return;
       if (viewport) await sessionManager.updateViewport(viewport.width, viewport.height);
+      if (!isCurrentWindow()) return;
       const bbSession = await sessionManager.initialize();
       console.log("Session initialized, sending SESSION_CREATED event");
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
+      if (isCurrentWindow()) window.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
     } catch (error) {
       console.error("Failed to initialize Browserbase session:", error);
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
+      if (isCurrentWindow()) window.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
     }
   });
 
