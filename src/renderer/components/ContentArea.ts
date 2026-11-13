@@ -78,7 +78,7 @@ export class ContentArea {
     });
 
     this.debugView.addEventListener("did-fail-load", (event) => {
-      console.error("[ContentArea] Webview failed to load:", event);
+      console.error("[ContentArea] Webview failed to load:", (event as Electron.DidFailLoadEvent).errorCode);
       this.showError(`Failed to load remote browser view: ${(event as any).errorDescription || 'Unknown error'}`);
     });
 
