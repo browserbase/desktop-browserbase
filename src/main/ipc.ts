@@ -13,6 +13,9 @@ import { IPC_CHANNELS, ScrollInputEvent } from "../shared/types";
 import { sessionManager } from "./session";
 import { browserMirrorManager } from "./mirror/manager";
 import { isTrustedRenderer } from "./security";
+import { ViewportUpdater } from "./viewport";
+
+let viewportUpdater: ViewportUpdater | null = null;
 
 function isAcceleratedScrollEnabled(): boolean {
   const value = process.env.BROWSERBASE_ACCELERATED_SCROLL;
@@ -66,6 +69,10 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     if (typeof id !== "string") throw new Error("Invalid download ID");
     return browserMirrorManager.revealDownload(id);
   });
+  viewportUpdater?.dispose();
+  viewportUpdater = new ViewportUpdater(({ width, height }) => sessionManager.updateViewport(width, height));
+  on(IPC_CHANNELS.VIEWPORT_CHANGED, (_event, viewport: unknown) => viewportUpdater?.push(viewport));
+
   // Navigation handlers
   handle(IPC_CHANNELS.NAVIGATE_TO, async (_event, url: string) => {
     try {
@@ -211,6 +218,8 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
  * memory leaks and ensure clean shutdown.
  */
 export function removeIpcHandlers(): void {
+  viewportUpdater?.dispose();
+  viewportUpdater = null;
   const channels = Object.values(IPC_CHANNELS);
   channels.forEach((channel) => {
     ipcMain.removeHandler(channel);

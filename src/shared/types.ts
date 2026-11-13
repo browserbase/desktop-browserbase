@@ -185,6 +185,7 @@ export const IPC_CHANNELS = {
 
   // Input forwarding
   INPUT_SCROLL: "input:scroll",
+  VIEWPORT_CHANGED: "viewport:changed",
   GET_ACCELERATED_SCROLL_ENABLED: "input:get-accelerated-scroll-enabled",
 
   // Tab management

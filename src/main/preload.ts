@@ -45,6 +45,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   dispatchScroll: (scrollEvent: import("../shared/types").ScrollInputEvent) =>
     ipcRenderer.send(IPC_CHANNELS.INPUT_SCROLL, scrollEvent),
 
+  updateViewport: (width: number, height: number) =>
+    ipcRenderer.send(IPC_CHANNELS.VIEWPORT_CHANGED, { width, height }),
+
   // Tabs
   newTab: () => ipcRenderer.invoke(IPC_CHANNELS.TAB_NEW),
   closeTab: (tabId: string) => ipcRenderer.invoke(IPC_CHANNELS.TAB_CLOSE, tabId),
@@ -160,6 +163,7 @@ declare global {
       navigateHome: () => Promise<{ success: boolean; error?: string }>;
       isAcceleratedScrollEnabled: () => Promise<boolean>;
       dispatchScroll: (scrollEvent: import("../shared/types").ScrollInputEvent) => void;
+      updateViewport: (width: number, height: number) => void;
       newTab: () => Promise<{ success: boolean; error?: string }>;
       closeTab: (tabId: string) => Promise<{ success: boolean; error?: string }>;
       switchTab: (tabId: string) => Promise<{ success: boolean; error?: string }>;
