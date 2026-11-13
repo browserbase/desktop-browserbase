@@ -11,7 +11,11 @@ export function isLiveViewUrl(value: string): boolean {
     return url.protocol === "https:" &&
       !url.username && !url.password && !url.port &&
       url.hostname === "www.browserbase.com" &&
-      ["/devtools/inspector.html", "/devtools-fullscreen/inspector.html"].includes(url.pathname);
+      [
+        "/devtools/inspector.html",
+        "/devtools-fullscreen/inspector.html",
+        "/devtools-fullscreen-compiled/index.html",
+      ].includes(url.pathname);
   } catch {
     return false;
   }
