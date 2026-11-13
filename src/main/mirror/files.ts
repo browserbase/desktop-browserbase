@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
+import { setTimeout as delay } from "timers/promises";
 
 const OWNER_FILE = ".browserbase-mirror.json";
 
@@ -13,7 +14,18 @@ export async function atomicWrite(file: string, data: string | Buffer): Promise<
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}.tmp`);
   try {
     await fs.writeFile(temporary, data, { mode: 0o600, flag: "wx" });
-    await fs.rename(temporary, file);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fs.rename(temporary, file);
+        break;
+      } catch (error) {
+        // Windows may briefly lock a destination during concurrent writes or scanning.
+        const code = (error as NodeJS.ErrnoException).code;
+        if (process.platform !== "win32" || attempt >= 5 ||
+            !["EPERM", "EACCES", "EBUSY"].includes(code || "")) throw error;
+        await delay(50 * 2 ** attempt);
+      }
+    }
   } finally {
     await fs.rm(temporary, { force: true });
   }
