@@ -10,6 +10,9 @@ on:
         description: 'Version to release (e.g., 1.0.0)'
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -31,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -42,21 +45,15 @@ jobs:
 
       - name: Build distributables (Linux)
         if: matrix.platform == 'linux'
-        run: npm run dist -- --linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist -- --linux --publish never
 
       - name: Build distributables (Windows)
         if: matrix.platform == 'win'
-        run: npm run dist -- --win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist -- --win --publish never
 
       - name: Build distributables (macOS)
         if: matrix.platform == 'mac'
-        run: npm run dist -- --mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist -- --mac --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
