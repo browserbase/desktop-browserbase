@@ -8,9 +8,10 @@
  * @module main/ipc
  */
 
-import { ipcMain, BrowserWindow } from "electron";
+import { ipcMain, BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { IPC_CHANNELS, ScrollInputEvent } from "../shared/types";
 import { sessionManager } from "./session";
+import { isTrustedRenderer } from "./security";
 
 function isAcceleratedScrollEnabled(): boolean {
   const value = process.env.BROWSERBASE_ACCELERATED_SCROLL;
@@ -29,8 +30,22 @@ function isAcceleratedScrollEnabled(): boolean {
  * @param mainWindow - The main BrowserWindow instance
  */
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
+  const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => unknown) => {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!isTrustedRenderer(event, mainWindow)) {
+        throw new Error("Untrusted IPC sender");
+      }
+      return listener(event, ...args);
+    });
+  };
+  const on = (channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void) => {
+    ipcMain.on(channel, (event, ...args) => {
+      if (isTrustedRenderer(event, mainWindow)) listener(event, ...args);
+    });
+  };
+
   // Navigation handlers
-  ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO, async (_event, url: string) => {
+  handle(IPC_CHANNELS.NAVIGATE_TO, async (_event, url: string) => {
     try {
       await sessionManager.navigateTo(url);
       return { success: true };
@@ -39,7 +54,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.NAVIGATE_BACK, async () => {
+  handle(IPC_CHANNELS.NAVIGATE_BACK, async () => {
     try {
       await sessionManager.goBack();
       return { success: true };
@@ -48,7 +63,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.NAVIGATE_FORWARD, async () => {
+  handle(IPC_CHANNELS.NAVIGATE_FORWARD, async () => {
     try {
       await sessionManager.goForward();
       return { success: true };
@@ -57,7 +72,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.NAVIGATE_RELOAD, async () => {
+  handle(IPC_CHANNELS.NAVIGATE_RELOAD, async () => {
     try {
       await sessionManager.reload();
       return { success: true };
@@ -66,7 +81,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.NAVIGATE_HOME, async () => {
+  handle(IPC_CHANNELS.NAVIGATE_HOME, async () => {
     try {
       const homeUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
       await sessionManager.navigateTo(homeUrl);
@@ -76,11 +91,11 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.GET_ACCELERATED_SCROLL_ENABLED, () => {
+  handle(IPC_CHANNELS.GET_ACCELERATED_SCROLL_ENABLED, () => {
     return isAcceleratedScrollEnabled();
   });
 
-  ipcMain.on(IPC_CHANNELS.INPUT_SCROLL, (_event, scrollEvent: ScrollInputEvent) => {
+  on(IPC_CHANNELS.INPUT_SCROLL, (_event, scrollEvent: ScrollInputEvent) => {
     if (!isAcceleratedScrollEnabled()) {
       return;
     }
@@ -89,7 +104,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
   });
 
   // Tab handlers
-  ipcMain.handle(IPC_CHANNELS.TAB_NEW, async () => {
+  handle(IPC_CHANNELS.TAB_NEW, async () => {
     try {
       await sessionManager.newTab();
       return { success: true };
@@ -98,7 +113,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.TAB_CLOSE, async (_event, tabId: string) => {
+  handle(IPC_CHANNELS.TAB_CLOSE, async (_event, tabId: string) => {
     try {
       await sessionManager.closeTab(tabId);
       return { success: true };
@@ -107,7 +122,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.TAB_SWITCH, async (_event, tabId: string) => {
+  handle(IPC_CHANNELS.TAB_SWITCH, async (_event, tabId: string) => {
     try {
       await sessionManager.switchTab(tabId);
       return { success: true };
@@ -117,16 +132,16 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
   });
 
   // Debug URL handler (Browserbase live view)
-  ipcMain.handle(IPC_CHANNELS.GET_DEBUG_URL, () => {
+  handle(IPC_CHANNELS.GET_DEBUG_URL, () => {
     return sessionManager.getDebugUrl();
   });
 
   // Window control handlers
-  ipcMain.on(IPC_CHANNELS.WINDOW_MINIMIZE, () => {
+  on(IPC_CHANNELS.WINDOW_MINIMIZE, () => {
     mainWindow.minimize();
   });
 
-  ipcMain.on(IPC_CHANNELS.WINDOW_MAXIMIZE, () => {
+  on(IPC_CHANNELS.WINDOW_MAXIMIZE, () => {
     if (mainWindow.isMaximized()) {
       mainWindow.unmaximize();
     } else {
@@ -134,35 +149,35 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.on(IPC_CHANNELS.WINDOW_CLOSE, () => {
+  on(IPC_CHANNELS.WINDOW_CLOSE, () => {
     mainWindow.close();
   });
 
   // Bookmarks toggle (for future implementation)
-  ipcMain.on(IPC_CHANNELS.BOOKMARKS_TOGGLE, () => {
+  on(IPC_CHANNELS.BOOKMARKS_TOGGLE, () => {
     mainWindow.webContents.send(IPC_CHANNELS.BOOKMARKS_TOGGLE);
   });
 
   // Menu action handlers
-  ipcMain.on(IPC_CHANNELS.OPEN_DEVTOOLS, () => {
+  on(IPC_CHANNELS.OPEN_DEVTOOLS, () => {
     mainWindow.webContents.openDevTools();
   });
 
-  ipcMain.on(IPC_CHANNELS.TOGGLE_FULLSCREEN, () => {
+  on(IPC_CHANNELS.TOGGLE_FULLSCREEN, () => {
     mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
 
-  ipcMain.on(IPC_CHANNELS.ZOOM_IN, () => {
+  on(IPC_CHANNELS.ZOOM_IN, () => {
     const currentZoom = mainWindow.webContents.getZoomLevel();
     mainWindow.webContents.setZoomLevel(currentZoom + 0.5);
   });
 
-  ipcMain.on(IPC_CHANNELS.ZOOM_OUT, () => {
+  on(IPC_CHANNELS.ZOOM_OUT, () => {
     const currentZoom = mainWindow.webContents.getZoomLevel();
     mainWindow.webContents.setZoomLevel(currentZoom - 0.5);
   });
 
-  ipcMain.on(IPC_CHANNELS.ZOOM_RESET, () => {
+  on(IPC_CHANNELS.ZOOM_RESET, () => {
     mainWindow.webContents.setZoomLevel(0);
   });
 }

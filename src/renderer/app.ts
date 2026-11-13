@@ -12,8 +12,8 @@ class App {
   private bookmarksBar!: BookmarksBar;
   private contentArea!: ContentArea;
   private downloadsBar!: DownloadsBar;
-  private statusBar!: HTMLElement;
-  private statusMessage!: HTMLElement;
+  private statusBar: HTMLElement | null = null;
+  private statusMessage: HTMLElement | null = null;
 
   constructor() {
     this.initialize();
@@ -41,8 +41,8 @@ class App {
     this.downloadsBar = new DownloadsBar();
 
     // Get status bar elements
-    this.statusBar = document.getElementById("status-bar") as HTMLElement;
-    this.statusMessage = document.getElementById("status-message") as HTMLElement;
+    this.statusBar = document.getElementById("status-bar");
+    this.statusMessage = document.getElementById("status-message");
 
     // Setup status bar close button
     const closeStatusBtn = document.getElementById("btn-close-status");
@@ -79,6 +79,7 @@ class App {
   }
 
   public showStatus(message: string, type: "info" | "error" = "info"): void {
+    if (!this.statusMessage || !this.statusBar) return;
     this.statusMessage.textContent = message;
     this.statusBar.classList.remove("hidden", "error");
     if (type === "error") {
@@ -87,7 +88,7 @@ class App {
   }
 
   public hideStatus(): void {
-    this.statusBar.classList.add("hidden");
+    this.statusBar?.classList.add("hidden");
   }
 
   // Public getters for components if needed
