@@ -8,6 +8,7 @@
  * @module main/session
  */
 
+import { safeError } from "./diagnostics";
 import { chromium, Browser, CDPSession, Page, BrowserContext } from "playwright-core";
 import { BrowserWindow } from "electron";
 import { BrowserbaseSession, TabInfo, IPC_CHANNELS, DownloadInfo, ScrollInputEvent } from "../shared/types";
@@ -94,7 +95,7 @@ export class SessionManager {
 
       const deviceScaleFactor = process.platform === "darwin" ? 2 : 1;
 
-      console.log(`[Viewport] Applying viewport ${width}x${height} (scale: ${deviceScaleFactor}) to page: ${page.url()}`);
+      console.log(`[Viewport] Applying viewport ${width}x${height} (scale: ${deviceScaleFactor})`);
 
       await cdp.send("Emulation.setDeviceMetricsOverride", {
         width,
@@ -105,7 +106,7 @@ export class SessionManager {
 
       console.log("[Viewport] Viewport applied successfully");
     } catch (error) {
-      console.error("[Viewport] Failed to apply viewport:", error);
+      console.error("[Viewport] Failed to apply viewport:", safeError(error).message);
     }
   }
 
@@ -187,9 +188,9 @@ export class SessionManager {
 
       return this.session;
     } catch (error) {
-      console.error("Failed to initialize session:", error);
-      this.notifyError(error as Error);
-      throw error;
+      console.error("Failed to initialize session:", safeError(error).message);
+      this.notifyError(safeError(error));
+      throw safeError(error);
     }
   }
 
@@ -229,7 +230,7 @@ export class SessionManager {
       try {
         this.cdpSession = await this.getCdpSessionForPage(page);
       } catch (cdpError) {
-        console.warn("Could not create CDP session:", cdpError);
+        console.warn("Could not create CDP session:", safeError(cdpError).message);
         // Continue without CDP session - basic functionality still works
       }
 
@@ -252,8 +253,8 @@ export class SessionManager {
       await this.applyViewportToAllPages();
 
     } catch (error) {
-      console.error("Failed to connect to browser:", error);
-      throw error;
+      console.error("Failed to connect to browser:", safeError(error).message);
+      throw safeError(error);
     } finally {
       this.isConnecting = false;
     }
@@ -360,7 +361,7 @@ export class SessionManager {
       this.notifyTabsUpdated();
       browserMirrorManager.syncTabs(this.tabs);
     } catch (error) {
-      console.error("Failed to sync tabs:", error);
+      console.error("Failed to sync tabs:", safeError(error).message);
     }
   }
 
@@ -393,7 +394,7 @@ export class SessionManager {
       if (id) this.targetIds.set(page, id);
       return id || null;
     } catch (error) {
-      console.warn("Failed to read page target ID:", error);
+      console.warn("Failed to read page target ID:", safeError(error).message);
       return null;
     }
   }
@@ -481,11 +482,11 @@ export class SessionManager {
         await this.syncTabs();
       }
     } catch (error) {
-      console.error("Navigation failed:", error);
+      console.error("Navigation failed:", safeError(error).message);
       if (url.startsWith("file:") && (error as Error).message.includes("ERR_BLOCKED_BY_ADMINISTRATOR")) {
         throw new Error("This remote browser blocks file:// navigation. Uploaded files remain available to file inputs.");
       }
-      throw error;
+      throw safeError(error);
     }
   }
 
@@ -497,7 +498,7 @@ export class SessionManager {
       await activePage.goBack();
       await this.syncTabs();
     } catch (error) {
-      console.error("Go back failed:", error);
+      console.error("Go back failed:", safeError(error).message);
     }
   }
 
@@ -509,7 +510,7 @@ export class SessionManager {
       await activePage.goForward();
       await this.syncTabs();
     } catch (error) {
-      console.error("Go forward failed:", error);
+      console.error("Go forward failed:", safeError(error).message);
     }
   }
 
@@ -521,7 +522,7 @@ export class SessionManager {
       await activePage.reload();
       await this.syncTabs();
     } catch (error) {
-      console.error("Reload failed:", error);
+      console.error("Reload failed:", safeError(error).message);
     }
   }
 
@@ -540,7 +541,7 @@ export class SessionManager {
         modifiers: this.getCdpModifierMask(scrollEvent.modifiers),
       });
     } catch (error) {
-      console.error("Scroll dispatch failed:", error);
+      console.error("Scroll dispatch failed:", safeError(error).message);
     }
   }
 
@@ -582,7 +583,7 @@ export class SessionManager {
         }
       }
     } catch (error) {
-      console.error("New tab failed:", error);
+      console.error("New tab failed:", safeError(error).message);
     }
   }
 
@@ -616,14 +617,14 @@ export class SessionManager {
                   this.notifyDebugUrlChanged(newDebugUrl);
                 }
               } catch (e) {
-                console.error("Failed to get debug URL after close:", e);
+                console.error("Failed to get debug URL after close:", safeError(e).message);
               }
             }, 300);
           }
         }
       }
     } catch (error) {
-      console.error("Close tab failed:", error);
+      console.error("Close tab failed:", safeError(error).message);
     }
   }
 
@@ -656,14 +657,14 @@ export class SessionManager {
               this.notifyDebugUrlChanged(newDebugUrl);
             }
           } catch (e) {
-            console.error("Failed to get debug URL for page:", e);
+            console.error("Failed to get debug URL for page:", safeError(e).message);
           }
         }
 
         await this.syncTabs();
       }
     } catch (error) {
-      console.error("Switch tab failed:", error);
+      console.error("Switch tab failed:", safeError(error).message);
     }
   }
 
@@ -713,7 +714,7 @@ export class SessionManager {
           await this.connectToBrowser();
           this.reconnectAttempts = 0;
         } catch (error) {
-          console.error("Reconnection failed:", error);
+          console.error("Reconnection failed:", safeError(error).message);
           this.handleDisconnect();
         }
       }, 2000);
@@ -749,7 +750,6 @@ export class SessionManager {
 
   private notifyDebugUrlChanged(url: string): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      console.log("Notifying debug URL changed:", url);
       this.mainWindow.webContents.send(IPC_CHANNELS.DEBUG_URL_CHANGED, url);
     }
   }
@@ -789,7 +789,7 @@ export class SessionManager {
         this.session = null;
       }
     } catch (error) {
-      console.error("Cleanup failed:", error);
+      console.error("Cleanup failed:", safeError(error).message);
     }
   }
 }
