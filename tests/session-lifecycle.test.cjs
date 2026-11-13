@@ -129,3 +129,20 @@ test('a failed start page keeps a connected session usable', async (t) => {
   assert.deepEqual(f.released, []);
   await f.manager.cleanup();
 });
+
+
+test('final shutdown prevents initialization already waiting for window cleanup', async (t) => {
+  const f = fixture(t);
+  const created = t.mock.method(f.client, 'createSession', async () => f.remote);
+  await f.manager.initialize();
+  const release = deferred();
+  f.client.stopSession = () => release.promise;
+  const cleanup = f.manager.cleanup();
+  const reopened = f.manager.initialize();
+  const rejected = assert.rejects(reopened, /Application is shutting down/);
+  const shutdown = f.manager.shutdown();
+  release.resolve();
+  await Promise.all([cleanup, shutdown, rejected]);
+  await assert.rejects(f.manager.initialize(), /Application is shutting down/);
+  assert.equal(created.mock.callCount(), 1);
+});
