@@ -20,6 +20,7 @@ import { IPC_CHANNELS } from "../shared/types";
 import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
 import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } from "./automation";
 import { secureWindow } from "./security";
+import { parseViewport } from "./viewport";
 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -345,23 +346,14 @@ async function createWindow(): Promise<void> {
     mainWindow.maximize();
   }
 
-  // Save window state on resize/move
+  // The renderer reports the actual live-view size, including toolbars and zoom.
   mainWindow.on("resize", () => {
-    if (mainWindow) {
-      saveWindowState(mainWindow);
-      // Debounce viewport updates to avoid too many CDP calls during drag
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      resizeTimeout = setTimeout(() => {
-        if (mainWindow) {
-          const bounds = mainWindow.getContentBounds();
-          const chromeUIHeight = 76; // Tab bar (36px) + nav bar (40px)
-          const viewportHeight = Math.max(400, bounds.height - chromeUIHeight);
-          sessionManager.updateViewport(bounds.width, viewportHeight);
-        }
-      }, 150); // 150ms debounce
-    }
+    const window = mainWindow;
+    if (resizeTimeout) clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      resizeTimeout = null;
+      if (window && !window.isDestroyed()) saveWindowState(window);
+    }, 100);
   });
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("close", () => mainWindow && saveWindowState(mainWindow));
@@ -378,6 +370,12 @@ async function createWindow(): Promise<void> {
     console.log("Renderer loaded, initializing Browserbase session...");
 
     try {
+      // Measure before provisioning so the initial remote surface matches the guest.
+      const viewport = parseViewport(await mainWindow?.webContents.executeJavaScript(`(() => {
+        const rect = document.getElementById("live-view-frame")?.getBoundingClientRect();
+        return rect ? { width: Math.round(rect.width), height: Math.round(rect.height) } : null;
+      })()`));
+      if (viewport) await sessionManager.updateViewport(viewport.width, viewport.height);
       const bbSession = await sessionManager.initialize();
       console.log("Session initialized, sending SESSION_CREATED event");
       mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
