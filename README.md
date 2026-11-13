@@ -101,12 +101,19 @@ BROWSERBASE_AUTOMATION_SERVER=true npm start
 
 When enabled, the app binds to `127.0.0.1` only and writes `automation.json` in
 the app data directory. The descriptor includes `/session`, `/json/version`,
-and `/json/list` endpoints. Use the returned `connectUrl` or
+and `/json/list` endpoints and a per-launch `token`. Read this owner-only file
+from your local automation client and send `Authorization: Bearer <token>` when
+requesting metadata. The `/health` endpoint does not require authentication.
+Requests from browser origins or non-loopback hostnames are rejected.
+
+Use the returned `connectUrl` or
 `webSocketDebuggerUrl` with libraries that support CDP, such as Playwright's
 `chromium.connectOverCDP`.
 
 The endpoint is disabled by default because the CDP URL includes credentials for
-the Browserbase session.
+the Browserbase session. Treat both the descriptor token and returned connection
+URLs as secrets. Clients that previously fetched metadata without authentication
+must now read the descriptor and include its token.
 
 ### Accelerated Scrolling
 
