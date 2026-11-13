@@ -393,15 +393,16 @@ export class BrowserbaseClient {
   async getDebugUrlForPage(
     sessionId: string,
     pageUrl: string,
-    options: { fallbackToPrimary?: boolean } = {}
+    options: { fallbackToPrimary?: boolean; timeoutMs?: number } = {}
   ): Promise<string | null> {
     try {
-      const debugInfo = await this.fetchDebugInfo(sessionId);
+      const debugInfo = await this.fetchDebugInfo(sessionId, options.timeoutMs);
 
 
       // Find the page by URL match
       if (debugInfo.pages) {
-        const matchingPage = debugInfo.pages.find(p => p.url === pageUrl);
+        const matches = debugInfo.pages.filter(p => p.url === pageUrl);
+        const matchingPage = matches.length === 1 ? matches[0] : undefined;
         if (matchingPage) {
           const debugUrl = this.getDebugUrlFromPage(matchingPage);
           if (debugUrl) {
@@ -436,9 +437,9 @@ export class BrowserbaseClient {
    * @param targetId - The CDP target ID for the page
    * @returns The debug URL for the page, or null if not found
    */
-  async getDebugUrlForTarget(sessionId: string, targetId: string): Promise<string | null> {
+  async getDebugUrlForTarget(sessionId: string, targetId: string, timeoutMs?: number): Promise<string | null> {
     try {
-      const debugInfo = await this.fetchDebugInfo(sessionId);
+      const debugInfo = await this.fetchDebugInfo(sessionId, timeoutMs);
       const matchingPage = debugInfo.pages?.find((page) => page.id === targetId);
 
       if (!matchingPage) {
