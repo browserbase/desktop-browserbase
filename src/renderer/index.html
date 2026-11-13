@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.browserbase.com wss://*.browserbase.com; frame-src https://*.browserbase.com https://www.browserbase.com; img-src 'self' data: https: http:; connect-src 'self' https://*.browserbase.com wss://*.browserbase.com wss://connect.browserbase.com https://www.google.com;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src https://www.browserbase.com; base-uri 'none'; form-action 'none';">
   <title>Desktop Browserbase</title>
   <link rel="stylesheet" href="./styles/chrome.css">
 </head>
@@ -132,7 +132,7 @@
 
     <!-- Content Area -->
     <div id="content-area" class="content-area">
-      <webview id="live-view-frame" class="live-view-frame" partition="persist:browserbase" allowpopups></webview>
+      <webview id="live-view-frame" class="live-view-frame" partition="persist:browserbase"></webview>
       <div id="loading-overlay" class="loading-overlay">
         <div class="loading-spinner"></div>
         <p>Connecting to Browserbase...</p>
