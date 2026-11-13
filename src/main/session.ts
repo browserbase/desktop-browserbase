@@ -40,17 +40,22 @@ export class SessionManager {
   private session: BrowserbaseSession | null = null;
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
-  private cdpSession: CDPSession | null = null;
   private mainWindow: BrowserWindow | null = null;
   private tabs: TabInfo[] = [];
-  private pageCdpSessions = new WeakMap<Page, CDPSession>();
+  private pageCdpSessions = new WeakMap<Page, Promise<CDPSession>>();
   private currentUrl: string = "";
   private activeTabIndex: number = 0;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
-  private isConnecting = false;
+  private initializing: Promise<BrowserbaseSession> | null = null;
+  private connecting: Promise<void> | null = null;
+  private cleaningUp: Promise<void> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private shuttingDown = false;
+  private permanentlyClosed = false;
+  private generation = 0;
 
-  setMainWindow(window: BrowserWindow): void {
+  setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window;
   }
 
@@ -81,8 +86,7 @@ export class SessionManager {
 
   private async applyViewportToPage(page: Page, width: number, height: number): Promise<void> {
     try {
-      // Always create a new CDP session for the specific page
-      const cdp = await page.context().newCDPSession(page);
+      const cdp = await this.getCdpSessionForPage(page);
 
       const deviceScaleFactor = process.platform === "darwin" ? 2 : 1;
 
@@ -111,6 +115,32 @@ export class SessionManager {
   }
 
   async initialize(): Promise<BrowserbaseSession> {
+    if (this.permanentlyClosed) throw new Error("Application is shutting down");
+    if (this.cleaningUp) await this.cleaningUp;
+    if (this.permanentlyClosed) throw new Error("Application is shutting down");
+    if (this.initializing) return this.initializing;
+    if (this.session) {
+      const session = this.session;
+      if (!this.browser?.isConnected()) await this.connectToBrowser();
+      if (this.shuttingDown || this.session !== session) throw new Error("Session is closing");
+      // A reloaded renderer has fresh UI state even when the cloud session is reused.
+      this.notifyTabsUpdated();
+      this.notifyUrlChanged(this.currentUrl);
+      return session;
+    }
+
+    this.shuttingDown = false;
+    const generation = this.generation;
+    const initializing = this.initializeSession(generation);
+    this.initializing = initializing;
+    try {
+      return await initializing;
+    } finally {
+      if (this.initializing === initializing) this.initializing = null;
+    }
+  }
+
+  private async initializeSession(generation: number): Promise<BrowserbaseSession> {
     try {
       // Calculate viewport size based on window content area
       // Chrome UI elements: tab bar (36px), nav bar (40px) = 76px total
@@ -142,10 +172,9 @@ export class SessionManager {
       // Create a Browserbase session with viewport matching our window.
       // BrowserbaseClient waits until the remote browser is RUNNING before
       // returning connection URLs when async/deferred scheduling is enabled.
-      const scaleFactor = this.mainWindow?.webContents.getZoomFactor() || 1;
       const deviceScaleFactor = process.platform === 'darwin' ? 2 : 1;
 
-      this.session = await this.getBrowserbaseClient().createSession({
+      const session = await this.getBrowserbaseClient().createSession({
         browserSettings: {
           viewport: {
             width: viewportWidth,
@@ -154,82 +183,80 @@ export class SessionManager {
           deviceScaleFactor,
         },
       });
+      if (this.shuttingDown || generation !== this.generation) {
+        await this.getBrowserbaseClient().stopSession(session.id);
+        throw new Error("Session startup cancelled");
+      }
+      this.session = session;
       console.log(`Using deviceScaleFactor: ${deviceScaleFactor}`);
       console.log("Browserbase session created:", this.session.id);
 
       // Connect to the remote browser via CDP
       await this.connectToBrowser();
+      if (this.shuttingDown || generation !== this.generation) {
+        throw new Error("Session startup cancelled");
+      }
 
-      return this.session;
+      // A failed start page should not discard an otherwise usable browser.
+      const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
+      try {
+        await this.navigateTo(defaultUrl);
+      } catch (error) {
+        console.warn("Could not load the start page:", safeError(error).message);
+      }
+      if (this.shuttingDown || generation !== this.generation) {
+        throw new Error("Session startup cancelled");
+      }
+      return session;
     } catch (error) {
+      await this.releaseResources();
       console.error("Failed to initialize session:", safeError(error).message);
-      this.notifyError(safeError(error));
+      if (!this.shuttingDown) this.notifyError(safeError(error));
       throw safeError(error);
     }
   }
 
   private async connectToBrowser(): Promise<void> {
-    if (!this.session) {
-      throw new Error("No session available");
-    }
+    if (this.connecting) return this.connecting;
+    if (!this.session || this.shuttingDown) throw new Error("No session available");
 
-    if (this.isConnecting) {
-      console.log("Already connecting, skipping...");
-      return;
-    }
-
-    this.isConnecting = true;
-
+    const connecting = this.openBrowserConnection(this.session, this.generation);
+    this.connecting = connecting;
     try {
-      // Connect to the remote browser using Playwright with timeout
-      console.log("Connecting to remote browser via CDP...");
-      this.browser = await chromium.connectOverCDP(this.session.connectUrl, {
-        timeout: 30000,
-      });
-      console.log("Connected to remote browser via CDP");
-
-      // Get the default context
-      const contexts = this.browser.contexts();
-      this.context = contexts[0] || await this.browser.newContext();
-
-      // Get all pages (tabs)
-      const pages = this.context.pages();
-      if (pages.length === 0) {
-        await this.context.newPage();
-      }
-
-      // Set up CDP session for advanced control
-      const page = this.context.pages()[0];
-      try {
-        this.cdpSession = await page.context().newCDPSession(page);
-      } catch (cdpError) {
-        console.warn("Could not create CDP session:", safeError(cdpError).message);
-        // Continue without CDP session - basic functionality still works
-      }
-
-      // Set up event listeners
-      await this.setupEventListeners(this.context);
-
-      // Initial tab sync
-      await this.syncTabs();
-
-      // Navigate to default URL
-      const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
-      await this.navigateTo(defaultUrl);
-
-      // Apply viewport override via CDP to match actual window size
-      console.log(`[Viewport] Applying initial viewport: ${this.currentViewportWidth}x${this.currentViewportHeight}`);
-      await this.applyViewportToAllPages();
-
-    } catch (error) {
-      console.error("Failed to connect to browser:", safeError(error).message);
-      throw safeError(error);
+      await connecting;
     } finally {
-      this.isConnecting = false;
+      if (this.connecting === connecting) this.connecting = null;
     }
   }
 
-  private async setupEventListeners(context: any): Promise<void> {
+  private async openBrowserConnection(session: BrowserbaseSession, generation: number): Promise<void> {
+    console.log("Connecting to remote browser via CDP...");
+    const browser = await chromium.connectOverCDP(session.connectUrl, { timeout: 30000 });
+    if (this.shuttingDown || generation !== this.generation || this.session !== session) {
+      await browser.close();
+      throw new Error("Browser connection cancelled");
+    }
+
+    this.browser = browser;
+    this.pageCdpSessions = new WeakMap();
+    try {
+      this.context = browser.contexts()[0] || await browser.newContext();
+      if (this.context.pages().length === 0) await this.context.newPage();
+      await this.setupEventListeners(this.context);
+      await this.syncTabs();
+      await this.applyViewportToAllPages();
+      console.log("Connected to remote browser via CDP");
+    } catch (error) {
+      if (this.browser === browser) {
+        this.browser = null;
+        this.context = null;
+      }
+      await browser.close().catch(() => {});
+      throw safeError(error);
+    }
+  }
+
+  private async setupEventListeners(context: BrowserContext): Promise<void> {
     // Helper to setup page listeners
     const setupPageListeners = (page: Page) => {
       page.on("close", async () => {
@@ -271,8 +298,13 @@ export class SessionManager {
     });
 
     // Listen for browser disconnect
-    this.browser?.on("disconnected", () => {
+    const browser = this.browser;
+    browser?.on("disconnected", () => {
+      if (this.shuttingDown || this.browser !== browser) return;
       console.log("Browser disconnected");
+      this.browser = null;
+      this.context = null;
+      this.pageCdpSessions = new WeakMap();
       this.handleDisconnect();
     });
   }
@@ -347,7 +379,7 @@ export class SessionManager {
 
   private async getTargetIdForPage(page: Page): Promise<string | null> {
     try {
-      const cdp = await page.context().newCDPSession(page);
+      const cdp = await this.getCdpSessionForPage(page);
       const targetInfo = await cdp.send("Target.getTargetInfo") as { targetInfo?: { targetId?: string } };
       return targetInfo.targetInfo?.targetId || null;
     } catch (error) {
@@ -359,8 +391,11 @@ export class SessionManager {
   private async getCdpSessionForPage(page: Page): Promise<CDPSession> {
     let cdp = this.pageCdpSessions.get(page);
     if (!cdp) {
-      cdp = await page.context().newCDPSession(page);
+      cdp = page.context().newCDPSession(page);
       this.pageCdpSessions.set(page, cdp);
+      cdp.catch(() => {
+        if (this.pageCdpSessions.get(page) === cdp) this.pageCdpSessions.delete(page);
+      });
     }
     return cdp;
   }
@@ -653,22 +688,26 @@ export class SessionManager {
   }
 
   private handleDisconnect(): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
-      setTimeout(async () => {
-        try {
-          await this.connectToBrowser();
-          this.reconnectAttempts = 0;
-        } catch (error) {
-          console.error("Reconnection failed:", safeError(error).message);
-          this.handleDisconnect();
-        }
-      }, 2000);
-    } else {
+    if (this.shuttingDown || !this.session || this.reconnectTimer) return;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.notifyDisconnected();
+      return;
     }
+
+    this.reconnectAttempts++;
+    const generation = this.generation;
+    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (this.shuttingDown || generation !== this.generation) return;
+      try {
+        await this.connectToBrowser();
+        this.reconnectAttempts = 0;
+      } catch (error) {
+        console.error("Reconnection failed:", safeError(error).message);
+        this.handleDisconnect();
+      }
+    }, 2000);
   }
 
   private notifyTabsUpdated(): void {
@@ -708,21 +747,58 @@ export class SessionManager {
     }
   }
 
-  async cleanup(): Promise<void> {
-    try {
-      if (this.browser) {
-        await this.browser.close();
-        this.browser = null;
-      }
+  async shutdown(): Promise<void> {
+    this.permanentlyClosed = true;
+    await this.cleanup();
+  }
 
-      if (this.session) {
-        await this.getBrowserbaseClient().stopSession(this.session.id);
-        this.session = null;
-      }
-    } catch (error) {
-      console.error("Cleanup failed:", safeError(error).message);
+  async cleanup(): Promise<void> {
+    if (this.cleaningUp) return this.cleaningUp;
+    this.shuttingDown = true;
+    this.generation++;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+
+    const cleanup = (async () => {
+      // Close an existing connection now, interrupting any pending navigation.
+      const releasing = this.releaseResources();
+      // A create/connect already in flight must settle so late resources are released too.
+      await this.initializing?.catch(() => {});
+      await this.connecting?.catch(() => {});
+      await releasing;
+      await this.releaseResources();
+    })();
+    this.cleaningUp = cleanup;
+    try {
+      await cleanup;
+    } finally {
+      if (this.cleaningUp === cleanup) this.cleaningUp = null;
     }
   }
+
+  private async releaseResources(): Promise<void> {
+    const browser = this.browser;
+    const session = this.session;
+    // Clear ownership before close emits 'disconnected'.
+    this.browser = null;
+    this.context = null;
+    this.session = null;
+    this.tabs = [];
+    this.currentUrl = "";
+    this.activeTabIndex = 0;
+    this.reconnectAttempts = 0;
+    this.pageCdpSessions = new WeakMap();
+
+    // Failure to close the transport must not skip the remote release request.
+    const results = await Promise.allSettled([
+      browser?.close(),
+      session ? this.getBrowserbaseClient().stopSession(session.id) : undefined,
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") console.error("Cleanup failed:", safeError(result.reason).message);
+    }
+  }
+
 }
 
 export const sessionManager = new SessionManager();

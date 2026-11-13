@@ -23,6 +23,8 @@ import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 let automationServer: AutomationServer | null = null;
+let quitting = false;
+let cleanupComplete = false;
 
 // Window state persistence
 interface WindowState {
@@ -312,6 +314,7 @@ function createApplicationMenu(): void {
 }
 
 async function createWindow(): Promise<void> {
+  if (quitting) return;
   const windowState = loadWindowState();
 
   // Create the browser window with Chrome-like appearance
@@ -370,23 +373,28 @@ async function createWindow(): Promise<void> {
   // Load the renderer HTML
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 
-  // Wait for renderer to be ready before initializing session
+  // Keep this callback tied to its window while initialization is in flight.
+  const window = mainWindow;
   mainWindow.webContents.on("did-finish-load", async () => {
+    if (quitting) return;
     console.log("Renderer loaded, initializing Browserbase session...");
 
     try {
       const bbSession = await sessionManager.initialize();
       console.log("Session initialized, sending SESSION_CREATED event");
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
+      if (!quitting && !window.isDestroyed()) window.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
     } catch (error) {
       console.error("Failed to initialize Browserbase session:", error);
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
     }
   });
 
   // Handle window close
   mainWindow.on("closed", () => {
+    if (resizeTimeout) clearTimeout(resizeTimeout);
+    resizeTimeout = null;
     mainWindow = null;
+    sessionManager.setMainWindow(null);
   });
 
   // Open DevTools in development
@@ -446,25 +454,33 @@ app.whenReady().then(async () => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!quitting && BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
 
-app.on("window-all-closed", async () => {
-  // Clean up Browserbase session
-  await sessionManager.cleanup();
+app.on("window-all-closed", () => {
+  // Remove old handlers immediately so a macOS activation can register new ones.
   removeIpcHandlers();
-
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  void sessionManager.cleanup().then(() => {
+    if (process.platform !== "darwin" && BrowserWindow.getAllWindows().length === 0) {
+      app.quit();
+    }
+  });
 });
 
-app.on("will-quit", async () => {
-  await automationServer?.stop();
-  await sessionManager.cleanup();
+app.on("before-quit", (event) => {
+  if (cleanupComplete) return;
+  // Electron does not wait for async lifecycle listeners on its own.
+  event.preventDefault();
+  if (quitting) return;
+  quitting = true;
+  if (resizeTimeout) clearTimeout(resizeTimeout);
+  void Promise.allSettled([automationServer?.stop(), sessionManager.shutdown()]).finally(() => {
+    cleanupComplete = true;
+    app.quit();
+  });
 });
 
 // Handle uncaught exceptions
