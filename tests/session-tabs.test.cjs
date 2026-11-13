@@ -115,3 +115,46 @@ test('a slow old tab sync cannot resurrect a closed page', async (t) => {
   assert.equal(f.manager.getTabs().length, 2);
   assert.ok(f.manager.getTabs().every((tab) => tab.targetId !== original.target));
 });
+
+
+test('a missing live-view target ends loading with an error for the current selection', async (t) => {
+  const f = await fixture(t);
+  f.manager.waitForDebugUrlForPage = async () => null;
+  await f.manager.switchTab(f.manager.getTabs()[1].id);
+  const errors = f.events.filter(([channel]) => channel === IPC_CHANNELS.SESSION_ERROR);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0][1], /Select the tab again to retry/);
+});
+
+test('a timed out lookup for a previous tab does not show an error over the active tab', async (t) => {
+  const f = await fixture(t);
+  const gate = deferred();
+  const requested = deferred();
+  f.manager.waitForDebugUrlForPage = async (page) => {
+    if (page.target === 'target-1') { requested.resolve(); return gate.promise; }
+    return `https://example.com/${page.target}`;
+  };
+  const second = f.manager.switchTab(f.manager.getTabs()[1].id);
+  await requested.promise;
+  await f.manager.switchTab(f.manager.getTabs()[2].id);
+  gate.resolve(null);
+  await second;
+  assert.equal(f.events.filter(([channel]) => channel === IPC_CHANNELS.SESSION_ERROR).length, 0);
+});
+
+test('tab operations await the newer sync when their own snapshot is superseded', async (t) => {
+  const f = await fixture(t);
+  const first = deferred();
+  const second = deferred();
+  let calls = 0;
+  f.pages[0].title = () => (++calls === 1 ? first.promise : second.promise);
+  let returned = false;
+  const oldSync = f.manager.syncTabs().then(() => { returned = true; });
+  const newSync = f.manager.syncTabs();
+  first.resolve('Old title');
+  await new Promise(setImmediate);
+  assert.equal(returned, false);
+  second.resolve('Current title');
+  await Promise.all([oldSync, newSync]);
+  assert.equal(f.manager.getTabs()[0].title, 'Current title');
+});

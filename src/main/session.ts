@@ -49,6 +49,7 @@ export class SessionManager {
   private pageTargetIds = new WeakMap<Page, string>();
   private nextTabId = 0;
   private tabSyncRevision = 0;
+  private tabSyncPromise: Promise<void> | null = null;
   private selectionRevision = 0;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
@@ -323,6 +324,16 @@ export class SessionManager {
   }
 
   private async syncTabs(): Promise<void> {
+    let pending = this.synchronizeTabs();
+    this.tabSyncPromise = pending;
+    do {
+      await pending;
+      if (this.tabSyncPromise === pending) return;
+      pending = this.tabSyncPromise!;
+    } while (pending);
+  }
+
+  private async synchronizeTabs(): Promise<void> {
     const context = this.context;
     if (!this.browser || !context) return;
     const revision = ++this.tabSyncRevision;
@@ -544,7 +555,11 @@ export class SessionManager {
 
   private async updateActiveDebugUrl(page: Page, revision = this.selectionRevision): Promise<boolean> {
     const debugUrl = await this.waitForDebugUrlForPage(page, 3000, 150, revision);
-    if (!debugUrl || this.getActivePage() !== page || revision !== this.selectionRevision || !this.session) return false;
+    if (this.getActivePage() !== page || revision !== this.selectionRevision || !this.session) return false;
+    if (!debugUrl) {
+      this.notifyError(new Error("Live view is unavailable for this tab. Select the tab again to retry."));
+      return false;
+    }
     this.session.debugUrl = debugUrl;
     this.notifyDebugUrlChanged(debugUrl);
     return true;
