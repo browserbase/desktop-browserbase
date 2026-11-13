@@ -52,6 +52,7 @@ export class SessionManager {
   private cleaningUp: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shuttingDown = false;
+  private permanentlyClosed = false;
   private generation = 0;
 
   setMainWindow(window: BrowserWindow | null): void {
@@ -114,7 +115,9 @@ export class SessionManager {
   }
 
   async initialize(): Promise<BrowserbaseSession> {
+    if (this.permanentlyClosed) throw new Error("Application is shutting down");
     if (this.cleaningUp) await this.cleaningUp;
+    if (this.permanentlyClosed) throw new Error("Application is shutting down");
     if (this.initializing) return this.initializing;
     if (this.session) {
       if (!this.browser?.isConnected()) await this.connectToBrowser();
@@ -737,6 +740,11 @@ export class SessionManager {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(IPC_CHANNELS.DEBUG_URL_LOADING);
     }
+  }
+
+  async shutdown(): Promise<void> {
+    this.permanentlyClosed = true;
+    await this.cleanup();
   }
 
   async cleanup(): Promise<void> {
