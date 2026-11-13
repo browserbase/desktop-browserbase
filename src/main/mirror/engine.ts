@@ -6,6 +6,7 @@ import { setTimeout as delay } from "timers/promises";
 import { DownloadInfo, TabInfo } from "../../shared/types";
 import { atomicWrite, FileQueue, readJson, safeId } from "./files";
 import { ArchiveFile, DownloadLimitError } from "./transfers";
+import { DEFAULT_LOG_LIMIT_BYTES, LOG_FILES, MirrorLogs } from "./logs";
 
 interface Transport extends EventEmitter {
   send(method: string, params?: any, sessionId?: string): Promise<any>;
@@ -38,6 +39,7 @@ export class MirrorEngine extends EventEmitter {
   private downloads = new Map<string, Download>();
   private unattributedFiles = new Map<string, ArchiveFile>();
   private queue = new FileQueue();
+  private logs: MirrorLogs;
   private tasks = new Set<Promise<unknown>>();
   private subscriptions: Array<[string, (...args: any[]) => void]> = [];
   private watchers = new Map<string, FSWatcher>();
@@ -59,7 +61,10 @@ export class MirrorEngine extends EventEmitter {
   constructor(private readonly client: Transport, private readonly directory: string,
     private readonly browserbaseSessionId: string, private readonly transfers: Transfers,
     private readonly abort: AbortController, private readonly intervalMs = 2000,
-    private readonly retryDelayMs = 1000) { super(); }
+    private readonly retryDelayMs = 1000, logLimitBytes = DEFAULT_LOG_LIMIT_BYTES) {
+    super();
+    this.logs = new MirrorLogs(directory, this.queue, logLimitBytes);
+  }
 
   private track<T>(task: Promise<T>): Promise<T> {
     this.tasks.add(task);
@@ -79,6 +84,7 @@ export class MirrorEngine extends EventEmitter {
   }
 
   async start(): Promise<void> {
+    await this.logs.restore();
     await this.restore();
     this.subscribe("Target.attachedToTarget", params => this.attach(params));
     this.subscribe("Target.detachedFromTarget", params => this.detach(params.sessionId));
@@ -204,11 +210,13 @@ export class MirrorEngine extends EventEmitter {
     this.pages.set(id, page);
     await fs.mkdir(path.join(dir, "uploads"), { recursive: true });
     await fs.mkdir(path.join(dir, "downloads"), { recursive: true });
-    for (const name of ["console.log", "network.log", "downloads.log", "uploads.log"]) await fs.appendFile(path.join(dir, name), "");
+    for (const name of LOG_FILES) await fs.appendFile(path.join(dir, name), "");
     return page;
   }
 
   private async restore(): Promise<void> {
+    const limit = await readJson<{ message?: string }>(path.join(this.directory, "downloads-limit.json"));
+    this.downloadLimitError = limit?.message;
     for (const entry of await fs.readdir(this.directory, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
       const old = await readJson<any>(path.join(this.directory, entry.name, "metadata.json"));
@@ -220,6 +228,9 @@ export class MirrorEngine extends EventEmitter {
         this.unattributedFiles.set(file.name, { ...file, path: path.join(page.dir, "downloads", hash, path.basename(file.name)) });
       }
       for (const download of old.downloads || []) {
+        if (this.downloadLimitError && download.state === "completed" && download.syncState !== "synced") {
+          download.syncState = "error"; download.error = this.downloadLimitError;
+        }
         // Rebuild paths under the current mirror root on resume.
         const localPath = download.archiveName ? path.join(page.dir, "downloads", safeId(download.id), path.basename(download.filename)) : undefined;
         this.downloads.set(download.id, { ...download, localPath });
@@ -295,9 +306,10 @@ export class MirrorEngine extends EventEmitter {
     if (page) await this.log(page, file, { method, sessionId: message.sessionId, params });
   }
   private log(page: PageRecord, name: string, value: any): Promise<void> {
+    if (this.logs.stopped) return Promise.resolve();
     const file = path.join(page.dir, name);
     const line = JSON.stringify({ ts: new Date().toISOString(), ...value }) + "\n";
-    return this.queue.run(file, () => fs.appendFile(file, line));
+    return this.logs.append(file, line);
   }
 
   private async downloadStarted(params: any): Promise<void> {
@@ -366,6 +378,10 @@ export class MirrorEngine extends EventEmitter {
           if (this.stopped) break;
           if (error instanceof DownloadLimitError) {
             this.downloadLimitError = error.message;
+            const marker = path.join(this.directory, "downloads-limit.json");
+            await this.queue.run(marker, () => atomicWrite(marker, JSON.stringify({
+              event: "downloadLimitReached", message: error.message, updatedAt: new Date().toISOString(),
+            }, null, 2)));
             for (const record of this.downloads.values()) {
               if (record.state !== "completed" || record.syncState === "synced") continue;
               record.syncState = "error"; record.error = error.message;
