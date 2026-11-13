@@ -162,11 +162,22 @@ An unclean app termination leaves the remote session running until its timeout.
 - `page.html` samples each page's `document.documentElement.outerHTML` every two
   seconds. It is a DOM snapshot, not a complete offline copy of the website.
 - Network and console logs contain newline-delimited JSON from CDP `Network`
-  and `Runtime` events. Network response bodies are not collected.
+  and `Runtime` events. Network response bodies are not collected. Console,
+  network, download, and upload logs share a 128 MiB budget across all pages,
+  including bytes already queued for writing. When the next event would exceed
+  the budget, log capture stops and `logs-limit.json` records the reason. Existing
+  logs are preserved, and other mirror output continues. Automatic reconnects
+  preserve the stopped state; a new session or explicit sync restart resets it.
 - Downloads use CDP start/progress events and Browserbase's session downloads
   archive. Archive availability is retried. Files without an unambiguous match
   are preserved under `_unattributed/downloads/`, with their metadata in
   `_unattributed/metadata.json`; they are never guessed into another tab's folder.
+  Each archive is limited to 256 MiB downloaded, 1 GiB expanded, 512 MiB per
+  file, and 10,000 entries (including directories). Exceeding a limit stops
+  download-sync retries for that session and reports an error for unsynced
+  downloads. `downloads-limit.json` preserves this stop across automatic
+  reconnects. Browsing and other mirror output continue; an explicit sync
+  restart or new session resets the limit error.
 - Drop files directly into a page's `uploads/` directory to upload them. Metadata
   records the resulting `remotePath` and `fileUrl`. Remote filenames include a
   page prefix to prevent collisions between tabs. Open the recorded `file://`

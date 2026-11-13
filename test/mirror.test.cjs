@@ -31,14 +31,14 @@ class FakeCdp extends EventEmitter {
   event(method, params, sessionId) { this.emit(method, params, { method, params, sessionId }); }
   close() { this.closed = true; }
 }
-async function fixture(t, overrides = {}, ids) {
+async function fixture(t, overrides = {}, ids, logLimitBytes) {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-mirror-test-'));
   const directory = path.join(parent, 'browser');
   await prepareMirrorDirectory(directory, 'session', true);
   const client = new FakeCdp(ids);
   const abort = new AbortController();
   const transfers = { downloads: async () => [], upload: async (_file, filename) => ({ remotePath: `/tmp/.uploads/${filename}`, fileUrl: `file:///tmp/.uploads/${filename}` }), ...overrides };
-  const engine = new MirrorEngine(client, directory, 'session', transfers, abort, 25, 10);
+  const engine = new MirrorEngine(client, directory, 'session', transfers, abort, 25, 10, logLimitBytes);
   const failures = [];
   engine.on('failure', error => failures.push(error));
   t.after(async () => { await engine.stop(); await fs.rm(parent, { recursive: true, force: true }); assert.deepEqual(failures, []); });
@@ -201,4 +201,51 @@ test('atomic replacement leaves no temporary files after rapid writes', async t 
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await Promise.all(Array.from({ length: 50 }, (_, i) => atomicWrite(path.join(dir, 'frame.jpg'), Buffer.from(String(i)))));
   assert.deepEqual(await fs.readdir(dir), ['frame.jpg']);
+});
+
+test('terminal archive limits stop retries and mark later downloads without fetching again', async t => {
+  const { DownloadLimitError } = require('../dist/main/mirror/transfers');
+  let attempts = 0;
+  const { engine, client, directory, json } = await fixture(t, { downloads: async () => {
+    attempts++; throw new DownloadLimitError('Download archive exceeds the expanded size limit');
+  } });
+  const complete = id => {
+    client.event('Browser.downloadWillBegin', { guid: id, frameId: 'frame-A', suggestedFilename: `${id}.txt`, url: 'https://example.test/file' });
+    client.event('Browser.downloadProgress', { guid: id, receivedBytes: 8, totalBytes: 8, state: 'completed' });
+  };
+  complete('first');
+  await eventually(async () => assert.equal((await json('A/metadata.json')).downloads[0].syncState, 'error'));
+  complete('second');
+  await eventually(async () => assert.equal((await json('A/metadata.json')).downloads[1].syncState, 'error'));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(attempts, 1);
+  assert.equal((await json('downloads-limit.json')).event, 'downloadLimitReached');
+  await engine.stop();
+  const reconnectedClient = new FakeCdp();
+  const reconnected = new MirrorEngine(reconnectedClient, directory, 'session', {
+    downloads: async () => { attempts++; return []; }, upload: async () => ({}),
+  }, new AbortController(), 25, 10);
+  try {
+    await reconnected.start();
+    reconnectedClient.event('Browser.downloadWillBegin', { guid: 'third', frameId: 'frame-A', suggestedFilename: 'third.txt', url: 'https://example.test/file' });
+    reconnectedClient.event('Browser.downloadProgress', { guid: 'third', receivedBytes: 8, totalBytes: 8, state: 'completed' });
+    await eventually(async () => assert.equal((await json('A/metadata.json')).downloads[2].syncState, 'error'));
+    assert.equal(attempts, 1);
+  } finally { await reconnected.stop(); }
+});
+
+
+test('log flooding writes a terminal marker while frames and other mirror output continue', async t => {
+  const { engine, client, directory, json } = await fixture(t, {}, undefined, 300);
+  client.event('Runtime.consoleAPICalled', { type: 'log', args: [{ value: 'first' }] }, 'session-A');
+  await eventually(async () => assert.match(await fs.readFile(path.join(directory, 'A/console.log'), 'utf8'), /first/));
+  const original = await fs.readFile(path.join(directory, 'A/console.log'), 'utf8');
+  client.event('Network.webSocketFrameReceived', { response: { payloadData: 'x'.repeat(400) } }, 'session-B');
+  await eventually(async () => assert.equal((await json('logs-limit.json')).event, 'logLimitReached'));
+  client.event('Runtime.consoleAPICalled', { type: 'log', args: [{ value: 'dropped' }] }, 'session-A');
+  client.event('Page.screencastFrame', { sessionId: 1, data: Buffer.from('frame after cap').toString('base64') }, 'session-A');
+  await eventually(() => assert.equal(engine.stats().frames, 1));
+  assert.equal(await fs.readFile(path.join(directory, 'A/console.log'), 'utf8'), original);
+  assert.equal(await fs.readFile(path.join(directory, 'B/network.log'), 'utf8'), '');
+  assert.equal(await fs.readFile(path.join(directory, 'A/screencast.jpg'), 'utf8'), 'frame after cap');
 });
