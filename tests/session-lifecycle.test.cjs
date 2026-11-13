@@ -146,3 +146,20 @@ test('final shutdown prevents initialization already waiting for window cleanup'
   await assert.rejects(f.manager.initialize(), /Application is shutting down/);
   assert.equal(created.mock.callCount(), 1);
 });
+
+
+test('renderer reload receives the existing tabs and address without creating a new session', async (t) => {
+  const f = fixture(t);
+  await f.manager.initialize();
+  await f.manager.navigateTo('https://example.com/existing-page');
+  const sent = [];
+  f.manager.setMainWindow({ isDestroyed: () => false, webContents: { send: (...args) => sent.push(args) } });
+  const { IPC_CHANNELS } = require('../dist/shared/types');
+  assert.equal(await f.manager.initialize(), f.remote);
+  assert.deepEqual(sent, [
+    [IPC_CHANNELS.TABS_UPDATED, f.manager.getTabs()],
+    [IPC_CHANNELS.URL_CHANGED, 'https://example.com/existing-page'],
+  ]);
+  assert.equal(f.connects.mock.callCount(), 1);
+  await f.manager.cleanup();
+});
