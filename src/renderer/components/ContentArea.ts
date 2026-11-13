@@ -5,6 +5,8 @@ export class ContentArea {
   private isLoaded: boolean = false;
   private loadTimeout: ReturnType<typeof setTimeout> | null = null;
   private acceleratedScrollEnabled: boolean = false;
+  private resizeObserver: ResizeObserver | null = null;
+  private viewportTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     console.log("[ContentArea] Initializing...");
@@ -19,8 +21,28 @@ export class ContentArea {
     });
 
     this.setupEventListeners();
+    this.observeViewport();
     void this.loadInputSettings();
     console.log("[ContentArea] Initialized successfully");
+  }
+
+  private observeViewport(): void {
+    if (!this.debugView) return;
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.viewportTimeout) return;
+      this.viewportTimeout = setTimeout(() => {
+        this.viewportTimeout = null;
+        const rect = this.debugView?.getBoundingClientRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          window.electronAPI.updateViewport(Math.round(rect.width), Math.round(rect.height));
+        }
+      }, 100);
+    });
+    this.resizeObserver.observe(this.debugView);
+    window.addEventListener("beforeunload", () => {
+      this.resizeObserver?.disconnect();
+      if (this.viewportTimeout) clearTimeout(this.viewportTimeout);
+    }, { once: true });
   }
 
   private async loadInputSettings(): Promise<void> {
