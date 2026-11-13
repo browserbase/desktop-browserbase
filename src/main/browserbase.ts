@@ -8,6 +8,7 @@
  * @module main/browserbase
  */
 
+import { safeError } from "./diagnostics";
 import { BrowserbaseSession, BrowserbaseSessionStatus, SessionConfig } from "../shared/types";
 
 /** Browserbase API base URL */
@@ -143,9 +144,9 @@ export class BrowserbaseClient {
 
         return response;
       } catch (error) {
-        lastError = error as Error;
+        lastError = safeError(error);
         const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-        console.log(`Request failed: ${(error as Error).message}, retrying in ${delay}ms...`);
+        console.log(`Request failed: ${safeError(error).message}, retrying in ${delay}ms...`);
         await this.sleep(delay);
       }
     }
@@ -195,8 +196,7 @@ export class BrowserbaseClient {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get Browserbase session: ${error}`);
+      throw new Error(`Failed to get Browserbase session (HTTP ${response.status})`);
     }
 
     return await response.json() as BrowserbaseApiSession;
@@ -224,8 +224,7 @@ export class BrowserbaseClient {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get Browserbase debug info: ${error}`);
+      throw new Error(`Failed to get Browserbase debug info (HTTP ${response.status})`);
     }
 
     return await response.json() as BrowserbaseDebugInfo;
@@ -240,7 +239,6 @@ export class BrowserbaseClient {
 
     // Get the debug/live view URL from the debug endpoint once the browser is running.
     const debugUrl = await this.getDebugUrl(session.id);
-    console.log("Using debugUrl:", debugUrl);
 
     return {
       id: session.id,
@@ -331,8 +329,7 @@ export class BrowserbaseClient {
     }
 
     if (!response.ok) {
-      const error = await response.text();
-      let errorMessage = `Failed to create Browserbase session: ${error}`;
+      let errorMessage = `Failed to create Browserbase session (HTTP ${response.status})`;
       if (response.status === 401) {
         errorMessage = "Authentication failed. Please check your BROWSERBASE_API_KEY.";
       } else if (response.status === 403) {
@@ -344,7 +341,7 @@ export class BrowserbaseClient {
     }
 
     const session = (await response.json()) as BrowserbaseApiSession;
-    console.log("Browserbase session created:", JSON.stringify(session, null, 2));
+    console.log("Browserbase session created with status:", session.status);
 
     if (session.status === "PENDING") {
       console.log(`Browserbase session ${session.id} is pending; polling until RUNNING...`);
@@ -370,7 +367,6 @@ export class BrowserbaseClient {
   async getDebugUrl(sessionId: string): Promise<string> {
     try {
       const debugInfo = await this.fetchDebugInfo(sessionId);
-      console.log("Debug info:", JSON.stringify(debugInfo, null, 2));
 
       // Use debuggerFullscreenUrl for the embedded view, hide navbar since we have our own
       const baseUrl = debugInfo.debuggerFullscreenUrl || debugInfo.debuggerUrl ||
@@ -378,7 +374,7 @@ export class BrowserbaseClient {
 
       return this.appendNavbarParam(baseUrl);
     } catch (error) {
-      console.error("Error getting debug URL:", error);
+      console.error("Error getting debug URL:", safeError(error).message);
       return this.fallbackDebugUrl(sessionId);
     }
   }
@@ -401,8 +397,6 @@ export class BrowserbaseClient {
     try {
       const debugInfo = await this.fetchDebugInfo(sessionId);
 
-      console.log("Looking for page with URL:", pageUrl);
-      console.log("Available pages:", debugInfo.pages?.map(p => ({ id: p.id, url: p.url })));
 
       // Find the page by URL match
       if (debugInfo.pages) {
@@ -426,7 +420,7 @@ export class BrowserbaseClient {
 
       return null;
     } catch (error) {
-      console.error("Error getting debug URL for page:", error);
+      console.error("Error getting debug URL for page:", safeError(error).message);
       return null;
     }
   }
@@ -453,7 +447,7 @@ export class BrowserbaseClient {
       console.log("Found matching target:", targetId);
       return this.getDebugUrlFromPage(matchingPage);
     } catch (error) {
-      console.error("Error getting debug URL for target:", error);
+      console.error("Error getting debug URL for target:", safeError(error).message);
       return null;
     }
   }
@@ -492,12 +486,11 @@ export class BrowserbaseClient {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error(`Failed to stop Browserbase session: ${error}`);
+        console.error(`Failed to stop Browserbase session (HTTP ${response.status})`);
       }
     } catch (error) {
       // Log but don't throw - this is cleanup code
-      console.error("Error stopping session:", error);
+      console.error("Error stopping session:", safeError(error).message);
     }
   }
 
