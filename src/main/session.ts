@@ -120,8 +120,13 @@ export class SessionManager {
     if (this.permanentlyClosed) throw new Error("Application is shutting down");
     if (this.initializing) return this.initializing;
     if (this.session) {
+      const session = this.session;
       if (!this.browser?.isConnected()) await this.connectToBrowser();
-      return this.session;
+      if (this.shuttingDown || this.session !== session) throw new Error("Session is closing");
+      // A reloaded renderer has fresh UI state even when the cloud session is reused.
+      this.notifyTabsUpdated();
+      this.notifyUrlChanged(this.currentUrl);
+      return session;
     }
 
     this.shuttingDown = false;
