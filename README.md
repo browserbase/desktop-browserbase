@@ -47,7 +47,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22.12+
 - npm or yarn
 - Browserbase account with API access
 
