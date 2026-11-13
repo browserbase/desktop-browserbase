@@ -101,9 +101,12 @@ BROWSERBASE_AUTOMATION_SERVER=true npm start
 
 When enabled, the app binds to `127.0.0.1` only and writes `automation.json` in
 the app data directory. The descriptor includes `/session`, `/json/version`,
-and `/json/list` endpoints and a per-launch `token`. Read this owner-only file
-from your local automation client and send `Authorization: Bearer <token>` when
-requesting metadata. The `/health` endpoint does not require authentication.
+and `/json/list` endpoints and a per-launch `token`. On POSIX systems, the file
+has owner-only permissions (`0600`). On Windows, access relies on the normal
+per-user app-data directory access controls; the app does not configure or verify
+Windows ACLs. Read the descriptor from your local automation client and send
+`Authorization: Bearer <token>` when requesting metadata. The `/health` endpoint
+does not require authentication.
 Requests from browser origins or non-loopback hostnames are rejected.
 
 Use the returned `connectUrl` or
