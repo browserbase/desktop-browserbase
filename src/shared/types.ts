@@ -70,7 +70,7 @@ export interface SessionConfig {
  * Synchronized from Playwright pages and sent to the renderer for UI updates.
  */
 export interface TabInfo {
-  /** Stable CDP target identifier. */
+  /** Stable tab identifier. */
   id: string;
   /** CDP target ID for the page */
   targetId: string;
