@@ -315,6 +315,7 @@ function createApplicationMenu(): void {
 }
 
 async function createWindow(): Promise<void> {
+  if (quitting) return;
   const windowState = loadWindowState();
 
   // Create the browser window with Chrome-like appearance
@@ -376,12 +377,13 @@ async function createWindow(): Promise<void> {
   // Keep this callback tied to its window while initialization is in flight.
   const window = mainWindow;
   mainWindow.webContents.on("did-finish-load", async () => {
+    if (quitting) return;
     console.log("Renderer loaded, initializing Browserbase session...");
 
     try {
       const bbSession = await sessionManager.initialize();
       console.log("Session initialized, sending SESSION_CREATED event");
-      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
+      if (!quitting && !window.isDestroyed()) window.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
     } catch (error) {
       console.error("Failed to initialize Browserbase session:", error);
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
@@ -465,7 +467,7 @@ app.whenReady().then(async () => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!quitting && BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
@@ -488,7 +490,7 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   quitting = true;
   if (resizeTimeout) clearTimeout(resizeTimeout);
-  void Promise.allSettled([automationServer?.stop(), sessionManager.cleanup()]).finally(() => {
+  void Promise.allSettled([automationServer?.stop(), sessionManager.shutdown()]).finally(() => {
     cleanupComplete = true;
     app.quit();
   });
