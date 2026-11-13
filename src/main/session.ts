@@ -44,7 +44,12 @@ export class SessionManager {
   private tabs: TabInfo[] = [];
   private pageCdpSessions = new WeakMap<Page, Promise<CDPSession>>();
   private currentUrl: string = "";
-  private activeTabIndex: number = 0;
+  private activePage: Page | null = null;
+  private pageIds = new WeakMap<Page, string>();
+  private pageTargetIds = new WeakMap<Page, string>();
+  private nextTabId = 0;
+  private tabSyncRevision = 0;
+  private selectionRevision = 0;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
   private initializing: Promise<BrowserbaseSession> | null = null;
@@ -252,15 +257,21 @@ export class SessionManager {
     // Helper to setup page listeners
     const setupPageListeners = (page: Page) => {
       page.on("close", async () => {
-        console.log("Page closed");
+        if (this.context !== context) return;
+        const wasActive = this.activePage === page;
+        if (wasActive) {
+          const index = this.tabs.findIndex((tab) => tab.id === this.getPageId(page));
+          this.activePage = context.pages()[Math.max(0, index - 1)] || null;
+          this.selectionRevision++;
+        }
         await this.syncTabs();
+        if (wasActive && this.activePage) await this.updateActiveDebugUrl(this.activePage);
       });
 
       // Listen for URL changes
       page.on("framenavigated", async (frame: any) => {
-        if (frame === page.mainFrame()) {
+        if (this.context === context && frame === page.mainFrame()) {
           await this.syncTabs();
-          this.notifyUrlChanged(page.url());
         }
       });
 
@@ -280,6 +291,7 @@ export class SessionManager {
     // Listen for new pages (tabs)
     context.on("page", async (page: Page) => {
       console.log("New page created");
+      if (this.context !== context) return;
       setupPageListeners(page);
       await this.syncTabs();
     });
@@ -301,50 +313,46 @@ export class SessionManager {
     });
   }
 
+  private getPageId(page: Page): string {
+    let id = this.pageIds.get(page);
+    if (!id) {
+      id = `tab-${this.nextTabId++}`;
+      this.pageIds.set(page, id);
+    }
+    return id;
+  }
+
   private async syncTabs(): Promise<void> {
-    if (!this.browser || !this.context) return;
+    const context = this.context;
+    if (!this.browser || !context) return;
+    const revision = ++this.tabSyncRevision;
+    const pages = context.pages();
+    const previousTarget = this.tabs.find((tab) => tab.active)?.targetId;
 
     try {
-      const pages = this.context.pages();
+      const tabs = await Promise.all(pages.map(async (page) => {
+        let title = "";
+        try { title = await page.title(); } catch { /* The page may be navigating or closed. */ }
+        const url = page.url();
+        return {
+          id: this.getPageId(page),
+          targetId: await this.getTargetIdForPage(page) || "",
+          title: title || "New Tab",
+          url: url || "about:blank",
+          active: false,
+          favicon: this.getFaviconUrl(url),
+        };
+      }));
+      if (this.context !== context || revision !== this.tabSyncRevision) return;
+      if (pages.length !== context.pages().length || pages.some((page, i) => context.pages()[i] !== page)) return;
 
-      // Ensure activeTabIndex is valid
-      if (this.activeTabIndex >= pages.length) {
-        this.activeTabIndex = Math.max(0, pages.length - 1);
+      if (!this.activePage || !pages.includes(this.activePage)) {
+        const previousIndex = previousTarget ? tabs.findIndex((tab) => tab.targetId === previousTarget) : -1;
+        this.activePage = pages[Math.max(0, previousIndex)] || null;
       }
-
-      this.tabs = await Promise.all(
-        pages.map(async (page, index) => {
-          let title = "";
-          let url = "";
-
-          try {
-            title = await page.title();
-            url = page.url();
-          } catch {
-            // Page might be loading
-          }
-
-          return {
-            id: `tab-${index}`,
-            targetId: `target-${index}`,
-            title: title || "New Tab",
-            url: url || "about:blank",
-            active: index === this.activeTabIndex,
-            favicon: this.getFaviconUrl(url),
-          };
-        })
-      );
-
-      // Update current URL from active tab
-      if (pages[this.activeTabIndex]) {
-        try {
-          this.currentUrl = pages[this.activeTabIndex].url();
-        } catch {
-          // Page might be loading
-        }
-      }
-
+      this.tabs = tabs.map((tab, i) => ({ ...tab, active: pages[i] === this.activePage }));
       this.notifyTabsUpdated();
+      this.notifyUrlChanged(this.activePage?.url() || "");
     } catch (error) {
       console.error("Failed to sync tabs:", safeError(error).message);
     }
@@ -362,7 +370,7 @@ export class SessionManager {
   private getActivePage(): Page | null {
     if (!this.context) return null;
     const pages = this.context.pages();
-    return pages[this.activeTabIndex] || pages[0] || null;
+    return this.activePage && pages.includes(this.activePage) ? this.activePage : pages[0] || null;
   }
 
   private sleep(ms: number): Promise<void> {
@@ -370,10 +378,14 @@ export class SessionManager {
   }
 
   private async getTargetIdForPage(page: Page): Promise<string | null> {
+    const cached = this.pageTargetIds.get(page);
+    if (cached) return cached;
     try {
       const cdp = await this.getCdpSessionForPage(page);
       const targetInfo = await cdp.send("Target.getTargetInfo") as { targetInfo?: { targetId?: string } };
-      return targetInfo.targetInfo?.targetId || null;
+      const targetId = targetInfo.targetInfo?.targetId || null;
+      if (targetId) this.pageTargetIds.set(page, targetId);
+      return targetId;
     } catch (error) {
       console.warn("Failed to read page target ID:", safeError(error).message);
       return null;
@@ -404,7 +416,8 @@ export class SessionManager {
   private async waitForDebugUrlForPage(
     page: Page,
     timeoutMs: number = 5000,
-    pollIntervalMs: number = 150
+    pollIntervalMs: number = 150,
+    selectionRevision: number = this.selectionRevision
   ): Promise<string | null> {
     if (!this.session) {
       return null;
@@ -414,16 +427,21 @@ export class SessionManager {
     const targetId = await this.getTargetIdForPage(page);
     const startedAt = Date.now();
 
-    while (Date.now() - startedAt <= timeoutMs) {
+    while (Date.now() - startedAt < timeoutMs) {
+      if (this.session?.id !== sessionId || this.getActivePage() !== page || selectionRevision !== this.selectionRevision) return null;
       let debugUrl: string | null = null;
 
       if (targetId) {
-        debugUrl = await this.getBrowserbaseClient().getDebugUrlForTarget(sessionId, targetId);
+        debugUrl = await this.getBrowserbaseClient().getDebugUrlForTarget(
+          sessionId, targetId, Math.max(1, timeoutMs - (Date.now() - startedAt))
+        );
       }
 
-      if (!debugUrl && (!targetId || page.url() !== "about:blank")) {
+      // Never match by URL when we know the target: multiple tabs can share a URL.
+      if (!debugUrl && !targetId) {
         debugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, page.url(), {
           fallbackToPrimary: false,
+          timeoutMs: Math.max(1, timeoutMs - (Date.now() - startedAt)),
         });
       }
 
@@ -461,7 +479,6 @@ export class SessionManager {
       const activePage = this.getActivePage();
       if (activePage) {
         await activePage.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-        this.currentUrl = url;
         await this.syncTabs();
       }
     } catch (error) {
@@ -525,124 +542,60 @@ export class SessionManager {
     }
   }
 
+  private async updateActiveDebugUrl(page: Page, revision = this.selectionRevision): Promise<boolean> {
+    const debugUrl = await this.waitForDebugUrlForPage(page, 3000, 150, revision);
+    if (!debugUrl || this.getActivePage() !== page || revision !== this.selectionRevision || !this.session) return false;
+    this.session.debugUrl = debugUrl;
+    this.notifyDebugUrlChanged(debugUrl);
+    return true;
+  }
+
+  private async activatePage(page: Page): Promise<boolean> {
+    const revision = ++this.selectionRevision;
+    this.activePage = page;
+    this.notifyDebugUrlLoading();
+    this.notifyUrlChanged(page.url());
+    await page.bringToFront();
+    if (this.getActivePage() !== page || revision !== this.selectionRevision) return false;
+    await this.applyViewportToPage(page, this.currentViewportWidth, this.currentViewportHeight);
+    await this.syncTabs();
+    return this.updateActiveDebugUrl(page, revision);
+  }
+
   async newTab(): Promise<void> {
-    if (!this.context) return;
-
+    const context = this.context;
+    if (!context) return;
     try {
-      const newPage = await this.context.newPage();
-      const pages = this.context.pages();
-      this.activeTabIndex = pages.indexOf(newPage);
-
-      // Apply viewport to the new tab
-      console.log(`[Viewport] Applying viewport to new tab: ${this.currentViewportWidth}x${this.currentViewportHeight}`);
-      await this.applyViewportToPage(newPage, this.currentViewportWidth, this.currentViewportHeight);
-
-      this.notifyDebugUrlLoading();
-      await this.syncTabs();
-
-      let newDebugUrl = await this.waitForDebugUrlForPage(newPage, 3000);
-      if (newDebugUrl) {
-        this.notifyDebugUrlChanged(newDebugUrl);
-      } else {
-        console.warn("Timed out waiting for debug URL for new page before navigation");
-      }
-
-      // Navigate to Google like the initial tab
+      const page = await context.newPage();
+      if (this.context !== context) return;
+      const updated = await this.activatePage(page);
+      const revision = this.selectionRevision;
       const defaultUrl = process.env.BROWSERBASE_DEFAULT_URL || "https://www.google.com";
-      await newPage.goto(defaultUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-
+      await page.goto(defaultUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
       await this.syncTabs();
-
-      if (!newDebugUrl) {
-        newDebugUrl = await this.waitForDebugUrlForPage(newPage, 3000);
-        if (newDebugUrl) {
-          this.notifyDebugUrlChanged(newDebugUrl);
-        } else {
-          console.warn("Timed out waiting for debug URL for new page after navigation");
-        }
-      }
+      if (!updated && this.getActivePage() === page) await this.updateActiveDebugUrl(page, revision);
     } catch (error) {
       console.error("New tab failed:", safeError(error).message);
     }
   }
 
   async closeTab(tabId: string): Promise<void> {
-    if (!this.context) return;
-
+    const pages = this.context?.pages();
+    const page = pages?.find((candidate) => this.getPageId(candidate) === tabId);
+    if (!pages || !page || pages.length <= 1) return;
     try {
-      const tabIndex = parseInt(tabId.replace("tab-", ""), 10);
-      const pages = this.context.pages();
-
-      if (pages[tabIndex] && pages.length > 1) {
-        await pages[tabIndex].close();
-
-        // Adjust active tab if necessary
-        if (tabIndex <= this.activeTabIndex) {
-          this.activeTabIndex = Math.max(0, this.activeTabIndex - 1);
-        }
-
-        await this.syncTabs();
-
-        // Update debug URL for the new active tab
-        if (this.session) {
-          const sessionId = this.session.id;
-          const remainingPages = this.context.pages();
-          const activePage = remainingPages[this.activeTabIndex];
-          if (activePage) {
-            setTimeout(async () => {
-              try {
-                const pageUrl = activePage.url();
-                const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(sessionId, pageUrl);
-                if (newDebugUrl) {
-                  this.notifyDebugUrlChanged(newDebugUrl);
-                }
-              } catch (e) {
-                console.error("Failed to get debug URL after close:", safeError(e).message);
-              }
-            }, 300);
-          }
-        }
-      }
+      await page.close();
+      await this.syncTabs();
     } catch (error) {
       console.error("Close tab failed:", safeError(error).message);
     }
   }
 
   async switchTab(tabId: string): Promise<void> {
-    if (!this.context) return;
-
+    const page = this.context?.pages().find((candidate) => this.getPageId(candidate) === tabId);
+    if (!page) return;
     try {
-      const tabIndex = parseInt(tabId.replace("tab-", ""), 10);
-      const pages = this.context.pages();
-
-      if (pages[tabIndex]) {
-        await pages[tabIndex].bringToFront();
-        this.activeTabIndex = tabIndex;
-        this.notifyDebugUrlLoading();
-
-        // Update URL to match new active tab
-        try {
-          this.currentUrl = pages[tabIndex].url();
-          this.notifyUrlChanged(this.currentUrl);
-        } catch {
-          // Page might be loading
-        }
-
-        // Get the updated debug URL for this specific page and notify renderer
-        if (this.session && pages[tabIndex]) {
-          try {
-            const pageUrl = pages[tabIndex].url();
-            const newDebugUrl = await this.getBrowserbaseClient().getDebugUrlForPage(this.session.id, pageUrl);
-            if (newDebugUrl) {
-              this.notifyDebugUrlChanged(newDebugUrl);
-            }
-          } catch (e) {
-            console.error("Failed to get debug URL for page:", safeError(e).message);
-          }
-        }
-
-        await this.syncTabs();
-      }
+      await this.activatePage(page);
     } catch (error) {
       console.error("Switch tab failed:", safeError(error).message);
     }
@@ -772,7 +725,11 @@ export class SessionManager {
     this.session = null;
     this.tabs = [];
     this.currentUrl = "";
-    this.activeTabIndex = 0;
+    this.activePage = null;
+    this.pageIds = new WeakMap();
+    this.pageTargetIds = new WeakMap();
+    this.tabSyncRevision++;
+    this.selectionRevision++;
     this.reconnectAttempts = 0;
     this.pageCdpSessions = new WeakMap();
 
