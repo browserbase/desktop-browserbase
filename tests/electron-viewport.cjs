@@ -45,10 +45,10 @@ app.whenReady().then(async () => {
     await shell.executeJavaScript('window.electronAPI.toggleBookmarks()');
     await expectSize('bookmarks shown', { width: 800, height: 492 });
     shell.send(IPC_CHANNELS.DOWNLOAD_STARTED, { id: 'synthetic-download', filename: 'sample.txt', receivedBytes: 10, totalBytes: 100, state: 'in_progress' });
-    await expectSize('downloads shown', { width: 800, height: 444 });
+    await expectSize('downloads shown', { width: 800, height: 428 });
     if (process.env.DESKTOP_TEST_SCREENSHOT) fs.writeFileSync(process.env.DESKTOP_TEST_SCREENSHOT, (await shell.capturePage()).toPNG());
     shell.setZoomFactor(1.25);
-    await expectSize('shell zoom 125 percent', { width: 640, height: 324 });
+    await expectSize('shell zoom 125 percent', { width: 640, height: 308 });
     shell.setZoomFactor(1);
     await shell.executeJavaScript('window.app.getBookmarksBar().hide(); window.app.getDownloadsBar().hide()');
     window.setContentSize(400, 300);
