@@ -39,6 +39,10 @@ app.whenReady().then(async () => {
   const fixtureSession = session.fromPartition('persist:browserbase');
   fixtureSession.protocol.handle('https', (request) => {
     if (!request.url.startsWith('https://www.browserbase.com/')) externalFixtureRequests++;
+    // The public fullscreen inspector redirects to this compiled viewer document.
+    if (new URL(request.url).pathname === '/devtools-fullscreen/inspector.html') {
+      return new Response(null, { status: 308, headers: { location: 'https://www.browserbase.com/devtools-fullscreen-compiled/index.html' } });
+    }
     return new Response(`<!doctype html>
     <html><head><title>Security test fixture</title></head><body style="font-family:system-ui;background:#f6f8fb;color:#17273a;padding:60px">
     <h1>Desktop Browserbase</h1><p>Local security test fixture</p>
@@ -50,6 +54,7 @@ app.whenReady().then(async () => {
   try {
     await until(() => { mainWindow = BrowserWindow.getAllWindows()[0]; return mainWindow; });
     await until(() => guest && guest.getURL().startsWith('https://www.browserbase.com/') && !guest.isLoading());
+    assert.equal(new URL(guest.getURL()).pathname, '/devtools-fullscreen-compiled/index.html');
     const shell = mainWindow.webContents;
     await until(() => shell.executeJavaScript('!!window.app && !!window.electronAPI'));
     assert.equal(shell.getLastWebPreferences().sandbox, true);

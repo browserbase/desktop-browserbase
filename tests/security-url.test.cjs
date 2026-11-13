@@ -6,6 +6,7 @@ test('live-view URL validation rejects scheme, credential, port, and hostname co
   for (const value of [
     'https://www.browserbase.com/devtools-fullscreen/inspector.html',
     'https://www.browserbase.com/devtools/inspector.html',
+    'https://www.browserbase.com/devtools-fullscreen-compiled/index.html',
   ]) assert.equal(isLiveViewUrl(value), true, value);
   for (const value of [
     'file:///tmp/index.html',
