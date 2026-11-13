@@ -70,7 +70,7 @@ export interface SessionConfig {
  * Synchronized from Playwright pages and sent to the renderer for UI updates.
  */
 export interface TabInfo {
-  /** Stable CDP target identifier. */
+  /** Stable tab identifier. */
   id: string;
   /** CDP target ID for the page */
   targetId: string;
@@ -185,6 +185,7 @@ export const IPC_CHANNELS = {
 
   // Input forwarding
   INPUT_SCROLL: "input:scroll",
+  VIEWPORT_CHANGED: "viewport:changed",
   GET_ACCELERATED_SCROLL_ENABLED: "input:get-accelerated-scroll-enabled",
 
   // Tab management

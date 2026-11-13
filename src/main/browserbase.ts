@@ -8,6 +8,7 @@
  * @module main/browserbase
  */
 
+import { safeError } from "./diagnostics";
 import { BrowserbaseSession, BrowserbaseSessionStatus, SessionConfig } from "../shared/types";
 
 /** Browserbase API base URL */
@@ -18,6 +19,9 @@ const MAX_RETRIES = 3;
 
 /** Base delay in milliseconds between retry attempts (uses exponential backoff) */
 const RETRY_DELAY_MS = 1000;
+
+/** Total deadline for an API operation, including retries and response bodies. */
+const REQUEST_TIMEOUT_MS = 30000;
 
 /** Default maximum time to wait for a deferred session to become RUNNING */
 const DEFAULT_SESSION_READY_TIMEOUT_MS = 120000;
@@ -118,41 +122,34 @@ export class BrowserbaseClient {
   private async fetchWithRetry(
     url: string,
     options: RequestInit,
-    retries: number = MAX_RETRIES
+    retries: number = MAX_RETRIES,
+    timeoutMs: number = REQUEST_TIMEOUT_MS
   ): Promise<Response> {
-    let lastError: Error | null = null;
+    const deadline = Date.now() + timeoutMs;
+    let lastError = new Error("Browserbase request timed out");
 
     for (let attempt = 0; attempt < retries; attempt++) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) throw lastError;
       try {
-        const response = await fetch(url, options);
-
-        // Don't retry client errors (4xx) except for rate limiting (429)
-        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-          return response;
-        }
-
-        // Retry server errors (5xx) and rate limiting (429)
-        if (response.ok) {
-          return response;
-        }
-
-        if (response.status === 429 || response.status >= 500) {
-          const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-          console.log(`Request failed with ${response.status}, retrying in ${delay}ms...`);
-          await this.sleep(delay);
-          continue;
-        }
-
-        return response;
+        const signal = AbortSignal.timeout(Math.ceil(remainingMs));
+        const response = await fetch(url, { ...options, signal });
+        const retryable = response.status === 429 || response.status >= 500;
+        if (!retryable || attempt === retries - 1) return response;
+        await response.body?.cancel();
+        lastError = new Error(`Browserbase request failed (HTTP ${response.status})`);
       } catch (error) {
-        lastError = error as Error;
-        const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-        console.log(`Request failed: ${(error as Error).message}, retrying in ${delay}ms...`);
-        await this.sleep(delay);
+        lastError = safeError(error);
+        if (attempt === retries - 1 || Date.now() >= deadline) throw lastError;
       }
+
+      const delay = Math.min(RETRY_DELAY_MS * Math.pow(2, attempt), deadline - Date.now());
+      if (delay <= 0) throw lastError;
+      console.log(`Retrying Browserbase request in ${delay}ms...`);
+      await this.sleep(delay);
     }
 
-    throw lastError || new Error("Request failed after retries");
+    throw lastError;
   }
 
   /** Utility function to pause execution for a specified duration */
@@ -188,17 +185,16 @@ export class BrowserbaseClient {
     );
   }
 
-  private async fetchSession(sessionId: string): Promise<BrowserbaseApiSession> {
+  private async fetchSession(sessionId: string, timeoutMs?: number): Promise<BrowserbaseApiSession> {
     const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}`, {
       method: "GET",
       headers: {
         "x-bb-api-key": this.apiKey,
       },
-    });
+    }, MAX_RETRIES, timeoutMs);
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get Browserbase session: ${error}`);
+      throw new Error(`Failed to get Browserbase session (HTTP ${response.status})`);
     }
 
     return await response.json() as BrowserbaseApiSession;
@@ -217,23 +213,22 @@ export class BrowserbaseClient {
     return `https://www.browserbase.com/devtools-fullscreen/inspector.html?wss=connect.browserbase.com&apiKey=${this.apiKey}&sessionId=${sessionId}`;
   }
 
-  private async fetchDebugInfo(sessionId: string): Promise<BrowserbaseDebugInfo> {
+  private async fetchDebugInfo(sessionId: string, timeoutMs?: number): Promise<BrowserbaseDebugInfo> {
     const response = await this.fetchWithRetry(`${BROWSERBASE_API_URL}/sessions/${sessionId}/debug`, {
       method: "GET",
       headers: {
         "x-bb-api-key": this.apiKey,
       },
-    });
+    }, MAX_RETRIES, timeoutMs);
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get Browserbase debug info: ${error}`);
+      throw new Error(`Failed to get Browserbase debug info (HTTP ${response.status})`);
     }
 
     return await response.json() as BrowserbaseDebugInfo;
   }
 
-  private async toReadySession(session: BrowserbaseApiSession): Promise<BrowserbaseSession> {
+  private async toReadySession(session: BrowserbaseApiSession, timeoutMs?: number): Promise<BrowserbaseSession> {
     if (session.status !== "RUNNING") {
       throw new Error(
         `Browserbase session ${session.id} is ${session.status}; connection details are not available yet`
@@ -241,8 +236,7 @@ export class BrowserbaseClient {
     }
 
     // Get the debug/live view URL from the debug endpoint once the browser is running.
-    const debugUrl = await this.getDebugUrl(session.id);
-    console.log("Using debugUrl:", debugUrl);
+    const debugUrl = await this.getDebugUrl(session.id, timeoutMs);
 
     return {
       id: session.id,
@@ -317,7 +311,7 @@ export class BrowserbaseClient {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
-      });
+      }, 1); // Creation is not idempotent: a lost response must not create another session.
 
     let response = await post();
 
@@ -342,8 +336,7 @@ export class BrowserbaseClient {
     }
 
     if (!response.ok) {
-      const error = await response.text();
-      let errorMessage = `Failed to create Browserbase session: ${error}`;
+      let errorMessage = `Failed to create Browserbase session (HTTP ${response.status})`;
       if (response.status === 401) {
         errorMessage = "Authentication failed. Please check your BROWSERBASE_API_KEY.";
       } else if (response.status === 403) {
@@ -355,18 +348,23 @@ export class BrowserbaseClient {
     }
 
     const session = (await response.json()) as BrowserbaseApiSession;
-    console.log("Browserbase session created:", JSON.stringify(session, null, 2));
+    console.log("Browserbase session created with status:", session.status);
 
-    if (session.status === "PENDING") {
-      console.log(`Browserbase session ${session.id} is pending; polling until RUNNING...`);
-      return await this.waitForSessionReady(
-        session.id,
-        config?.readyTimeoutMs,
-        config?.readyPollIntervalMs
-      );
+    try {
+      if (session.status === "PENDING") {
+        console.log(`Browserbase session ${session.id} is pending; polling until RUNNING...`);
+        return await this.waitForSessionReady(
+          session.id,
+          config?.readyTimeoutMs,
+          config?.readyPollIntervalMs
+        );
+      }
+      return await this.toReadySession(session);
+    } catch (error) {
+      // The caller cannot release a session until creation returns its ID.
+      await this.stopSession(session.id);
+      throw safeError(error);
     }
-
-    return await this.toReadySession(session);
   }
 
   /**
@@ -378,10 +376,9 @@ export class BrowserbaseClient {
    * @param sessionId - The session ID to get the debug URL for
    * @returns The debug URL for iframe embedding
    */
-  async getDebugUrl(sessionId: string): Promise<string> {
+  async getDebugUrl(sessionId: string, timeoutMs?: number): Promise<string> {
     try {
-      const debugInfo = await this.fetchDebugInfo(sessionId);
-      console.log("Debug info:", JSON.stringify(debugInfo, null, 2));
+      const debugInfo = await this.fetchDebugInfo(sessionId, timeoutMs);
 
       // Use debuggerFullscreenUrl for the embedded view, hide navbar since we have our own
       const baseUrl = debugInfo.debuggerFullscreenUrl || debugInfo.debuggerUrl ||
@@ -389,7 +386,7 @@ export class BrowserbaseClient {
 
       return this.appendNavbarParam(baseUrl);
     } catch (error) {
-      console.error("Error getting debug URL:", error);
+      console.error("Error getting debug URL:", safeError(error).message);
       return this.fallbackDebugUrl(sessionId);
     }
   }
@@ -407,17 +404,16 @@ export class BrowserbaseClient {
   async getDebugUrlForPage(
     sessionId: string,
     pageUrl: string,
-    options: { fallbackToPrimary?: boolean } = {}
+    options: { fallbackToPrimary?: boolean; timeoutMs?: number } = {}
   ): Promise<string | null> {
     try {
-      const debugInfo = await this.fetchDebugInfo(sessionId);
+      const debugInfo = await this.fetchDebugInfo(sessionId, options.timeoutMs);
 
-      console.log("Looking for page with URL:", pageUrl);
-      console.log("Available pages:", debugInfo.pages?.map(p => ({ id: p.id, url: p.url })));
 
       // Find the page by URL match
       if (debugInfo.pages) {
-        const matchingPage = debugInfo.pages.find(p => p.url === pageUrl);
+        const matches = debugInfo.pages.filter(p => p.url === pageUrl);
+        const matchingPage = matches.length === 1 ? matches[0] : undefined;
         if (matchingPage) {
           const debugUrl = this.getDebugUrlFromPage(matchingPage);
           if (debugUrl) {
@@ -437,7 +433,7 @@ export class BrowserbaseClient {
 
       return null;
     } catch (error) {
-      console.error("Error getting debug URL for page:", error);
+      console.error("Error getting debug URL for page:", safeError(error).message);
       return null;
     }
   }
@@ -452,9 +448,9 @@ export class BrowserbaseClient {
    * @param targetId - The CDP target ID for the page
    * @returns The debug URL for the page, or null if not found
    */
-  async getDebugUrlForTarget(sessionId: string, targetId: string): Promise<string | null> {
+  async getDebugUrlForTarget(sessionId: string, targetId: string, timeoutMs?: number): Promise<string | null> {
     try {
-      const debugInfo = await this.fetchDebugInfo(sessionId);
+      const debugInfo = await this.fetchDebugInfo(sessionId, timeoutMs);
       const matchingPage = debugInfo.pages?.find((page) => page.id === targetId);
 
       if (!matchingPage) {
@@ -464,7 +460,7 @@ export class BrowserbaseClient {
       console.log("Found matching target:", targetId);
       return this.getDebugUrlFromPage(matchingPage);
     } catch (error) {
-      console.error("Error getting debug URL for target:", error);
+      console.error("Error getting debug URL for target:", safeError(error).message);
       return null;
     }
   }
@@ -503,12 +499,11 @@ export class BrowserbaseClient {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error(`Failed to stop Browserbase session: ${error}`);
+        console.error(`Failed to stop Browserbase session (HTTP ${response.status})`);
       }
     } catch (error) {
       // Log but don't throw - this is cleanup code
-      console.error("Error stopping session:", error);
+      console.error("Error stopping session:", safeError(error).message);
     }
   }
 
@@ -529,16 +524,20 @@ export class BrowserbaseClient {
     timeoutMs: number = this.getDefaultReadyTimeoutMs(),
     pollIntervalMs: number = this.getDefaultReadyPollIntervalMs()
   ): Promise<BrowserbaseSession> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || !Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
+      throw new Error("Session readiness timeout and poll interval must be positive finite numbers");
+    }
     const startTime = Date.now();
     let lastStatus: BrowserbaseSessionStatus = "UNKNOWN";
 
-    while (Date.now() - startTime <= timeoutMs) {
-      const session = await this.fetchSession(sessionId);
+    while (Date.now() - startTime < timeoutMs) {
+      const remainingBeforeFetch = timeoutMs - (Date.now() - startTime);
+      const session = await this.fetchSession(sessionId, Math.min(REQUEST_TIMEOUT_MS, remainingBeforeFetch));
       lastStatus = session.status;
 
       if (session.status === "RUNNING") {
         console.log(`Browserbase session ${sessionId} is RUNNING`);
-        return await this.toReadySession(session);
+        return await this.toReadySession(session, Math.max(1, timeoutMs - (Date.now() - startTime)));
       }
 
       if (TERMINAL_SESSION_STATUSES.has(session.status)) {

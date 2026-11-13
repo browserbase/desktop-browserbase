@@ -7,6 +7,7 @@
  */
 
 import * as fs from "fs";
+import { randomBytes, timingSafeEqual } from "crypto";
 import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import { AddressInfo } from "net";
 import * as path from "path";
@@ -47,6 +48,7 @@ export function getAutomationServerPort(): number {
 
 export class AutomationServer {
   private server: Server | null = null;
+  private token = "";
 
   constructor(
     private readonly getSessionInfo: SessionInfoProvider,
@@ -59,18 +61,26 @@ export class AutomationServer {
       return address.port;
     }
 
+    this.token = randomBytes(32).toString("hex");
     this.server = createServer((request, response) => {
       this.handleRequest(request, response);
     });
 
-    await new Promise<void>((resolve, reject) => {
-      this.server?.once("error", reject);
-      this.server?.listen(port, AUTOMATION_HOST, () => resolve());
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.server!.once("error", reject);
+        this.server!.listen(port, AUTOMATION_HOST, () => resolve());
+      });
 
-    const address = this.server.address() as AddressInfo;
-    this.writeDescriptor(address.port);
-    return address.port;
+      const address = this.server.address() as AddressInfo;
+      this.writeDescriptor(address.port);
+      return address.port;
+    } catch (error) {
+      this.server.close();
+      this.server = null;
+      this.token = "";
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
@@ -91,19 +101,43 @@ export class AutomationServer {
       });
     });
 
+    this.token = "";
     this.removeDescriptor();
   }
 
   private handleRequest(request: IncomingMessage, response: ServerResponse): void {
+    const port = (this.server?.address() as AddressInfo | null)?.port;
+    if (
+      ![`${AUTOMATION_HOST}:${port}`, `localhost:${port}`].includes(request.headers.host || "") ||
+      request.headers.origin !== undefined ||
+      request.headers["sec-fetch-site"] !== undefined
+    ) {
+      this.sendJson(response, 403, { error: "Local clients only" });
+      return;
+    }
+
     if (request.method !== "GET") {
       this.sendJson(response, 405, { error: "Method not allowed" });
       return;
     }
 
-    const requestUrl = new URL(request.url || "/", `http://${AUTOMATION_HOST}`);
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(request.url || "/", `http://${AUTOMATION_HOST}:${port}`);
+    } catch {
+      this.sendJson(response, 400, { error: "Invalid request URL" });
+      return;
+    }
 
     if (requestUrl.pathname === "/health") {
       this.sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    const authorization = Buffer.from(request.headers.authorization || "");
+    const expected = Buffer.from(`Bearer ${this.token}`);
+    if (authorization.length !== expected.length || !timingSafeEqual(authorization, expected)) {
+      this.sendJson(response, 401, { error: "Authentication required" });
       return;
     }
 
@@ -149,6 +183,7 @@ export class AutomationServer {
     response.writeHead(statusCode, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
     });
     response.end(JSON.stringify(body, null, 2));
   }
@@ -157,6 +192,7 @@ export class AutomationServer {
     const baseUrl = `http://${AUTOMATION_HOST}:${port}`;
     const descriptor = {
       enabled: true,
+      token: this.token,
       host: AUTOMATION_HOST,
       port,
       baseUrl,
@@ -166,7 +202,16 @@ export class AutomationServer {
     };
 
     fs.mkdirSync(this.userDataPath, { recursive: true });
-    fs.writeFileSync(this.getDescriptorPath(), JSON.stringify(descriptor, null, 2));
+    const temporaryPath = `${this.getDescriptorPath()}.${randomBytes(8).toString("hex")}.tmp`;
+    try {
+      fs.writeFileSync(temporaryPath, JSON.stringify(descriptor, null, 2), {
+        mode: 0o600,
+        flag: "wx",
+      });
+      fs.renameSync(temporaryPath, this.getDescriptorPath());
+    } finally {
+      fs.rmSync(temporaryPath, { force: true });
+    }
   }
 
   private removeDescriptor(): void {

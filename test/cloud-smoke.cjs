@@ -40,7 +40,8 @@ async function until(check, timeout = 90000) {
     await app.evaluate(async (_, module) => { await require(module).sessionManager.initialize(); }, sessionModule);
     const initial = await app.evaluate((_, module) => require(module).sessionManager.getAutomationInfo(), sessionModule);
     assert(initial.tabs[0].targetId && !initial.tabs[0].targetId.startsWith('target-'));
-    const pageId = initial.tabs.find(tab => tab.active).targetId;
+    const originalTab = initial.tabs.find(tab => tab.active);
+    const pageId = originalTab.targetId;
     const pageDir = path.join(directory, pageId);
     await app.evaluate(async (_, module) => {
       const page = require(module).sessionManager.getActivePage();
@@ -91,7 +92,7 @@ async function until(check, timeout = 90000) {
     assert.equal(tabs.length, 2);
     const newId = tabs.find(tab => tab.active).targetId;
     await until(async () => JSON.parse(await fs.readFile(path.join(directory, 'active.json'), 'utf8')).pageId === newId);
-    await app.evaluate(async (_, { module, id }) => require(module).sessionManager.switchTab(id), { module: sessionModule, id: pageId });
+    await app.evaluate(async (_, { module, id }) => require(module).sessionManager.switchTab(id), { module: sessionModule, id: originalTab.id });
     await until(async () => JSON.parse(await fs.readFile(path.join(directory, 'active.json'), 'utf8')).pageId === pageId);
     await app.evaluate(async (_, module) => require(module).browserMirrorManager.disconnect(), managerModule);
     const beforeReconnect = (await fs.stat(path.join(pageDir, 'screencast.jpg'))).mtimeMs;

@@ -47,7 +47,7 @@ xattr -cr /Applications/Desktop\ Browserbase.app
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22.12+
 - npm or yarn
 - Browserbase account with API access
 
@@ -101,12 +101,22 @@ BROWSERBASE_AUTOMATION_SERVER=true npm start
 
 When enabled, the app binds to `127.0.0.1` only and writes `automation.json` in
 the app data directory. The descriptor includes `/session`, `/json/version`,
-and `/json/list` endpoints. Use the returned `connectUrl` or
+and `/json/list` endpoints and a per-launch `token`. On POSIX systems, the file
+has owner-only permissions (`0600`). On Windows, access relies on the normal
+per-user app-data directory access controls; the app does not configure or verify
+Windows ACLs. Read the descriptor from your local automation client and send
+`Authorization: Bearer <token>` when requesting metadata. The `/health` endpoint
+does not require authentication.
+Requests from browser origins or non-loopback hostnames are rejected.
+
+Use the returned `connectUrl` or
 `webSocketDebuggerUrl` with libraries that support CDP, such as Playwright's
 `chromium.connectOverCDP`.
 
 The endpoint is disabled by default because the CDP URL includes credentials for
-the Browserbase session.
+the Browserbase session. Treat both the descriptor token and returned connection
+URLs as secrets. Clients that previously fetched metadata without authentication
+must now read the descriptor and include its token.
 
 ### Accelerated Scrolling
 
@@ -194,7 +204,9 @@ cleared. Stop sync before retaining a separate copy of any files you need to
 keep across fresh sessions.
 
 Mirroring is opt-in because these local files can contain page content, network
-headers, console output, and downloaded documents. Credentials used to connect
+headers, console output, and downloaded documents. On POSIX systems, the managed
+`browser/` directory is accessible only to its owner, and atomic output files
+are created with owner-only permissions. Credentials used to connect
 to Browserbase are not included in sync status or the folder ownership file.
 
 When the optional automation server is enabled, `/session` includes `mirror`

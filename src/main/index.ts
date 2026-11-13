@@ -11,7 +11,7 @@
  * @module main/index
  */
 
-import { app, BrowserWindow, session, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { sessionManager } from "./session";
@@ -20,10 +20,14 @@ import { IPC_CHANNELS } from "../shared/types";
 import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
 import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } from "./automation";
 import { browserMirrorManager } from "./mirror/manager";
+import { secureWindow } from "./security";
+import { parseViewport } from "./viewport";
 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 let automationServer: AutomationServer | null = null;
+let quitting = false;
+let cleanupComplete = false;
 
 // Window state persistence
 interface WindowState {
@@ -313,6 +317,7 @@ function createApplicationMenu(): void {
 }
 
 async function createWindow(): Promise<void> {
+  if (quitting) return;
   const windowState = loadWindowState();
 
   // Create the browser window with Chrome-like appearance
@@ -333,33 +338,26 @@ async function createWindow(): Promise<void> {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // Required for preload script
+      sandbox: true,
       webviewTag: true, // Enable webview tag for live view embed
     },
   });
+
+  secureWindow(mainWindow);
 
   // Restore maximized state
   if (windowState.isMaximized) {
     mainWindow.maximize();
   }
 
-  // Save window state on resize/move
+  // The renderer reports the actual live-view size, including toolbars and zoom.
   mainWindow.on("resize", () => {
-    if (mainWindow) {
-      saveWindowState(mainWindow);
-      // Debounce viewport updates to avoid too many CDP calls during drag
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      resizeTimeout = setTimeout(() => {
-        if (mainWindow) {
-          const bounds = mainWindow.getContentBounds();
-          const chromeUIHeight = 76; // Tab bar (36px) + nav bar (40px)
-          const viewportHeight = Math.max(400, bounds.height - chromeUIHeight);
-          sessionManager.updateViewport(bounds.width, viewportHeight);
-        }
-      }, 150); // 150ms debounce
-    }
+    const window = mainWindow;
+    if (resizeTimeout) clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      resizeTimeout = null;
+      if (window && !window.isDestroyed()) saveWindowState(window);
+    }, 100);
   });
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("close", () => mainWindow && saveWindowState(mainWindow));
@@ -371,46 +369,43 @@ async function createWindow(): Promise<void> {
   // Load the renderer HTML
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 
-  // Wait for renderer to be ready before initializing session
-  mainWindow.webContents.on("did-finish-load", async () => {
+  // Keep this callback tied to its window while initialization is in flight.
+  const window = mainWindow;
+  const isCurrentWindow = () => !quitting && !window.isDestroyed() && mainWindow === window;
+  window.webContents.on("did-finish-load", async () => {
+    if (!isCurrentWindow()) return;
     console.log("Renderer loaded, initializing Browserbase session...");
 
     try {
+      // Measure before provisioning so the initial remote surface matches the guest.
+      const viewport = parseViewport(await window.webContents.executeJavaScript(`(() => {
+        const rect = document.getElementById("live-view-frame")?.getBoundingClientRect();
+        return rect ? { width: Math.round(rect.width), height: Math.round(rect.height) } : null;
+      })()`));
+      if (!isCurrentWindow()) return;
+      if (viewport) await sessionManager.updateViewport(viewport.width, viewport.height);
+      if (!isCurrentWindow()) return;
       const bbSession = await sessionManager.initialize();
       console.log("Session initialized, sending SESSION_CREATED event");
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
+      if (isCurrentWindow()) window.webContents.send(IPC_CHANNELS.SESSION_CREATED, bbSession.id);
     } catch (error) {
       console.error("Failed to initialize Browserbase session:", error);
-      mainWindow?.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.SESSION_ERROR, (error as Error).message);
     }
   });
 
   // Handle window close
   mainWindow.on("closed", () => {
+    if (resizeTimeout) clearTimeout(resizeTimeout);
+    resizeTimeout = null;
     mainWindow = null;
+    sessionManager.setMainWindow(null);
   });
 
   // Open DevTools in development
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools();
   }
-}
-
-// Set up content security policy for Browserbase iframe
-function setupContentSecurityPolicy(): void {
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.browserbase.com wss://*.browserbase.com; " +
-            "frame-src https://*.browserbase.com https://www.browserbase.com; " +
-            "img-src 'self' data: https: http:; " +
-            "connect-src 'self' https://*.browserbase.com wss://*.browserbase.com wss://connect.browserbase.com https://www.google.com;",
-        ],
-      },
-    });
-  });
 }
 
 // App lifecycle
@@ -448,7 +443,6 @@ app.whenReady().then(async () => {
   }
 
   createApplicationMenu();
-  setupContentSecurityPolicy();
   await createWindow();
 
   // Handle theme changes
@@ -459,32 +453,33 @@ app.whenReady().then(async () => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!quitting && BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
 
-app.on("window-all-closed", async () => {
-  // Clean up Browserbase session
-  await sessionManager.cleanup();
+app.on("window-all-closed", () => {
+  // Remove old handlers immediately so a macOS activation can register new ones.
   removeIpcHandlers();
-
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  void sessionManager.cleanup().then(() => {
+    if (process.platform !== "darwin" && BrowserWindow.getAllWindows().length === 0) {
+      app.quit();
+    }
+  });
 });
 
-let quitReady = false;
-app.on("before-quit", event => {
-  if (quitReady) return;
+app.on("before-quit", (event) => {
+  if (cleanupComplete) return;
+  // Electron does not wait for async lifecycle listeners on its own.
   event.preventDefault();
-  void (async () => {
-    await sessionManager.cleanup();
-    await automationServer?.stop();
-    quitReady = true;
+  if (quitting) return;
+  quitting = true;
+  if (resizeTimeout) clearTimeout(resizeTimeout);
+  void Promise.allSettled([automationServer?.stop(), sessionManager.shutdown()]).finally(() => {
+    cleanupComplete = true;
     app.quit();
-  })();
+  });
 });
 
 // Handle uncaught exceptions
