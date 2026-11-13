@@ -90,7 +90,7 @@ jobs:
         with:
           files: artifacts/*
           draft: false
-          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
