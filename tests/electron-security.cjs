@@ -62,6 +62,7 @@ app.whenReady().then(async () => {
     assert.equal(await shell.executeJavaScript('typeof require'), 'undefined');
     assert.equal((await shell.executeJavaScript('window.electronAPI.newTab()')).success, true);
     assert.equal(newTabs, 1);
+    assert.equal((await shell.executeJavaScript('window.electronAPI.getMirrorStatus()')).enabled, false);
 
     // Untrusted remote metadata remains text/attributes, even if it contains markup.
     shell.send(IPC_CHANNELS.TABS_UPDATED, [{ id: 'tab-0', targetId: 'test', title: '<img src=x onerror="window.__injected=true">', url: 'https://example.test', favicon: 'x" onerror="window.__injected=true', active: true }]);
@@ -81,6 +82,9 @@ app.whenReady().then(async () => {
     await outsider.loadURL('data:text/html,<title>Untrusted caller</title>');
     assert.match(await outsider.webContents.executeJavaScript('window.electronAPI.newTab().then(() => "allowed", error => error.message)'), /Untrusted IPC sender/);
     assert.equal(newTabs, 1);
+    for (const call of ['getMirrorStatus()', 'setMirrorEnabled(true)', 'chooseMirrorFolder()', 'openMirrorFolder(false)', 'revealDownload("synthetic")']) {
+      assert.match(await outsider.webContents.executeJavaScript(`window.electronAPI.${call}.then(() => "allowed", error => error.message)`), /Untrusted IPC sender/);
+    }
     const initialZoom = shell.getZoomLevel();
     await outsider.webContents.executeJavaScript('window.electronAPI.zoomIn()');
     await new Promise((resolve) => setTimeout(resolve, 50));

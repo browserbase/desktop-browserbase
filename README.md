@@ -201,7 +201,9 @@ cleared. Stop sync before retaining a separate copy of any files you need to
 keep across fresh sessions.
 
 Mirroring is opt-in because these local files can contain page content, network
-headers, console output, and downloaded documents. Credentials used to connect
+headers, console output, and downloaded documents. On POSIX systems, the managed
+`browser/` directory is accessible only to its owner, and atomic output files
+are created with owner-only permissions. Credentials used to connect
 to Browserbase are not included in sync status or the folder ownership file.
 
 When the optional automation server is enabled, `/session` includes `mirror`

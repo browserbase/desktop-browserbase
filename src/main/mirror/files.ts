@@ -12,7 +12,7 @@ export function safeId(id: string): string {
 export async function atomicWrite(file: string, data: string | Buffer): Promise<void> {
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}.tmp`);
   try {
-    await fs.writeFile(temporary, data);
+    await fs.writeFile(temporary, data, { mode: 0o600, flag: "wx" });
     await fs.rename(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true });
@@ -30,7 +30,7 @@ export async function readJson<T>(file: string): Promise<T | undefined> {
 export async function prepareMirrorDirectory(directory: string, sessionId: string, fresh: boolean): Promise<void> {
   const root = path.resolve(directory);
   if (path.basename(root) !== "browser") throw new Error("Mirror directory must be named browser");
-  await fs.mkdir(root, { recursive: true });
+  await fs.mkdir(root, { recursive: true, mode: 0o700 });
   if ((await fs.lstat(root)).isSymbolicLink()) throw new Error("Mirror directory cannot be a symbolic link");
   const ownerPath = path.join(root, OWNER_FILE);
   const owner = await readJson<{ owner: string; sessionId: string }>(ownerPath);
@@ -38,6 +38,7 @@ export async function prepareMirrorDirectory(directory: string, sessionId: strin
   if (entries.length && owner?.owner !== "desktop-browserbase") {
     throw new Error("This browser folder contains existing files. Choose another parent folder.");
   }
+  if (process.platform !== "win32") await fs.chmod(root, 0o700);
   if (fresh || (owner && owner.sessionId !== sessionId)) {
     for (const entry of entries) await fs.rm(path.join(root, entry), { recursive: true, force: true });
   }

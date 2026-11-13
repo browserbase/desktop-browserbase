@@ -69,3 +69,23 @@ test('legacy logs above the budget are preserved without further appends', async
   assert.equal(await fs.readFile(a, 'utf8'), 'legacy evidence\n');
   assert.equal(JSON.parse(await fs.readFile(path.join(directory, 'logs-limit.json'), 'utf8')).event, 'logLimitReached');
 });
+
+test('owned mirror output is private on POSIX without changing foreign folder permissions', { skip: process.platform === 'win32' }, async t => {
+  const { prepareMirrorDirectory, atomicWrite } = require('../dist/main/mirror/files');
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mirror-private-'));
+  t.after(() => fs.rm(parent, { recursive: true, force: true }));
+  const root = path.join(parent, 'browser');
+  await prepareMirrorDirectory(root, 'synthetic-session', true);
+  assert.equal((await fs.stat(root)).mode & 0o777, 0o700);
+  await fs.chmod(root, 0o755);
+  await prepareMirrorDirectory(root, 'synthetic-session', false);
+  assert.equal((await fs.stat(root)).mode & 0o777, 0o700);
+  const metadata = path.join(root, 'metadata.json');
+  await atomicWrite(metadata, '{"pageUrl":"https://example.test/"}');
+  assert.equal((await fs.stat(metadata)).mode & 0o777, 0o600);
+  const foreign = path.join(parent, 'foreign/browser');
+  await fs.mkdir(foreign, { recursive: true }); await fs.chmod(foreign, 0o755);
+  await fs.writeFile(path.join(foreign, 'mine.txt'), 'keep');
+  await assert.rejects(prepareMirrorDirectory(foreign, 'synthetic-session', false), /existing files/);
+  assert.equal((await fs.stat(foreign)).mode & 0o777, 0o755);
+});

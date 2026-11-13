@@ -163,3 +163,82 @@ test('renderer reload receives the existing tabs and address without creating a 
   assert.equal(f.connects.mock.callCount(), 1);
   await f.manager.cleanup();
 });
+
+test('folder sync attaches before initial navigation and requests keep-alive', async (t) => {
+  const { browserMirrorManager } = require('../dist/main/mirror/manager');
+  const f = fixture(t);
+  const events = [];
+  const create = t.mock.method(f.client, 'createSession', async () => f.remote);
+  t.mock.method(browserMirrorManager, 'attachSession', async (session) => {
+    assert.equal(session, f.remote);
+    events.push('mirror attached');
+  });
+  t.mock.method(f.page, 'goto', async () => { events.push('navigated'); });
+  await f.manager.initialize();
+  assert.equal(create.mock.calls[0].arguments[0].keepAlive, true);
+  assert.deepEqual(events, ['mirror attached', 'navigated']);
+  await f.manager.cleanup();
+});
+
+test('cleanup flushes folder sync before closing or releasing the browser', async (t) => {
+  const { browserMirrorManager } = require('../dist/main/mirror/manager');
+  const f = fixture(t);
+  await f.manager.initialize();
+  const gate = deferred();
+  const events = [];
+  t.mock.method(browserMirrorManager, 'endSession', async () => { await gate.promise; });
+  t.mock.method(f.browser, 'close', async () => { events.push('closed'); });
+  t.mock.method(f.client, 'stopSession', async () => { events.push('released'); });
+  const cleanup = f.manager.cleanup();
+  await new Promise(setImmediate);
+  assert.deepEqual(events, []);
+  assert.equal(f.manager.getSessionId(), '');
+  gate.resolve();
+  await cleanup;
+  assert.deepEqual(events, ['closed', 'released']);
+});
+
+test('a folder-sync shutdown failure cannot skip the cloud release', async (t) => {
+  const { browserMirrorManager } = require('../dist/main/mirror/manager');
+  const f = fixture(t);
+  await f.manager.initialize();
+  t.mock.method(browserMirrorManager, 'endSession', async () => { throw new Error('synthetic worker failure'); });
+  await f.manager.cleanup();
+  assert.deepEqual(f.released, ['synthetic-session']);
+  assert.equal(f.manager.reconnectTimer, null);
+});
+
+test('transport reconnect reattaches folder sync without navigating away', async (t) => {
+  const { browserMirrorManager } = require('../dist/main/mirror/manager');
+  const f = fixture(t);
+  const attach = t.mock.method(browserMirrorManager, 'attachSession', async () => {});
+  const disconnect = t.mock.method(browserMirrorManager, 'disconnect', async () => {});
+  await f.manager.initialize();
+  await f.manager.navigateTo('https://example.com/keep-this-page');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  f.browser.emit('disconnected');
+  t.mock.timers.tick(2000);
+  await new Promise(setImmediate);
+  assert.equal(attach.mock.callCount(), 2);
+  assert.equal(disconnect.mock.callCount(), 1);
+  assert.equal(f.page.url(), 'https://example.com/keep-this-page');
+  assert.equal(f.navigations.length, 2);
+  await f.manager.cleanup();
+});
+
+test('cleanup during folder-sync startup prevents later navigation and releases the session', async (t) => {
+  const { browserMirrorManager } = require('../dist/main/mirror/manager');
+  const f = fixture(t);
+  const attached = deferred();
+  const gate = deferred();
+  t.mock.method(browserMirrorManager, 'attachSession', async () => { attached.resolve(); await gate.promise; });
+  const initialized = f.manager.initialize();
+  const rejected = assert.rejects(initialized, /cancelled/);
+  await attached.promise;
+  const cleanup = f.manager.cleanup();
+  gate.resolve();
+  await Promise.all([cleanup, rejected]);
+  assert.deepEqual(f.navigations, []);
+  assert.deepEqual(f.released, ['synthetic-session']);
+  assert.equal(f.manager.getSessionId(), '');
+});
