@@ -38,12 +38,16 @@ export class BookmarksBar {
       .map(
         (bookmark) => `
         <a href="#" class="bookmark-item" data-url="${this.escapeAttr(bookmark.url)}">
-          <img src="https://www.google.com/s2/favicons?domain=${this.getDomain(bookmark.url)}&sz=16" alt="" class="bookmark-favicon" onerror="this.style.visibility='hidden'">
+          <img src="https://www.google.com/s2/favicons?domain=${this.getDomain(bookmark.url)}&sz=16" alt="" class="bookmark-favicon">
           <span>${this.escapeHtml(bookmark.title)}</span>
         </a>
       `
       )
       .join("");
+
+    this.container.querySelectorAll<HTMLImageElement>(".bookmark-favicon").forEach((image) => {
+      image.addEventListener("error", () => { image.style.visibility = "hidden"; });
+    });
 
     // Add click handlers
     this.container.querySelectorAll(".bookmark-item").forEach((item) => {

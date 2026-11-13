@@ -11,7 +11,7 @@
  * @module main/index
  */
 
-import { app, BrowserWindow, session, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, nativeTheme, dialog, Menu, MenuItemConstructorOptions } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { sessionManager } from "./session";
@@ -19,6 +19,7 @@ import { setupIpcHandlers, removeIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../shared/types";
 import { getConfigSearchPaths, loadEnvironmentConfig } from "./config";
 import { AutomationServer, getAutomationServerPort, isAutomationServerEnabled } from "./automation";
+import { secureWindow } from "./security";
 
 let mainWindow: BrowserWindow | null = null;
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -332,10 +333,12 @@ async function createWindow(): Promise<void> {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // Required for preload script
+      sandbox: true,
       webviewTag: true, // Enable webview tag for live view embed
     },
   });
+
+  secureWindow(mainWindow);
 
   // Restore maximized state
   if (windowState.isMaximized) {
@@ -395,23 +398,6 @@ async function createWindow(): Promise<void> {
   }
 }
 
-// Set up content security policy for Browserbase iframe
-function setupContentSecurityPolicy(): void {
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.browserbase.com wss://*.browserbase.com; " +
-            "frame-src https://*.browserbase.com https://www.browserbase.com; " +
-            "img-src 'self' data: https: http:; " +
-            "connect-src 'self' https://*.browserbase.com wss://*.browserbase.com wss://connect.browserbase.com https://www.google.com;",
-        ],
-      },
-    });
-  });
-}
-
 // App lifecycle
 app.whenReady().then(async () => {
   const loadedConfigFiles = loadEnvironmentConfig();
@@ -435,7 +421,6 @@ app.whenReady().then(async () => {
   }
 
   createApplicationMenu();
-  setupContentSecurityPolicy();
   await createWindow();
 
   // Handle theme changes

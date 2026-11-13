@@ -53,7 +53,7 @@ export class ContentArea {
 
     // Listen for debug URL changes (tab switching)
     window.electronAPI.onDebugUrlChanged((url: string) => {
-      console.log("[ContentArea] Debug URL changed:", url);
+      console.log("[ContentArea] Debug URL changed");
       this.updateDebugView(url);
     });
 
@@ -78,16 +78,12 @@ export class ContentArea {
     });
 
     this.debugView.addEventListener("did-fail-load", (event) => {
-      console.error("[ContentArea] Webview failed to load:", event);
+      console.error("[ContentArea] Webview failed to load:", (event as Electron.DidFailLoadEvent).errorCode);
       this.showError(`Failed to load remote browser view: ${(event as any).errorDescription || 'Unknown error'}`);
     });
 
     this.debugView.addEventListener("dom-ready", () => {
       console.log("[ContentArea] Webview DOM ready");
-    });
-
-    this.debugView.addEventListener("console-message", (event) => {
-      console.log("[Webview Console]", (event as any).message);
     });
 
     this.element?.addEventListener("wheel", (event) => this.handleWheel(event), {
@@ -143,7 +139,7 @@ export class ContentArea {
       this.showLoading();
       console.log("[ContentArea] Fetching debug URL...");
       const url = await window.electronAPI.getDebugUrl();
-      console.log("[ContentArea] Got debug URL:", url);
+      console.log("[ContentArea] Received debug URL");
 
       if (url) {
         // Set a timeout to hide loading even if load event doesn't fire
@@ -157,7 +153,7 @@ export class ContentArea {
 
         this.debugView.src = url;
         this.isLoaded = true;
-        console.log("[ContentArea] Debug webview src set to:", url);
+        console.log("[ContentArea] Debug webview source updated");
 
         // Check dimensions after a short delay
         setTimeout(() => {
@@ -212,11 +208,14 @@ export class ContentArea {
           </svg>
           <p style="color: #202124; font-size: 16px; margin-bottom: 8px;">Connection Error</p>
           <p style="color: #5F6368; font-size: 14px; max-width: 520px; white-space: pre-wrap; text-align: left;">${this.escapeHtml(message)}</p>
-          <button onclick="window.location.reload()" style="margin-top: 16px; padding: 8px 24px; background: #1A73E8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+          <button class="retry-connection" style="margin-top: 16px; padding: 8px 24px; background: #1A73E8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
             Retry
           </button>
         </div>
       `;
+      this.loadingOverlay.querySelector(".retry-connection")?.addEventListener("click", () => {
+        window.location.reload();
+      });
     }
   }
 
@@ -233,7 +232,7 @@ export class ContentArea {
     }
 
     if (url && url !== this.debugView.src) {
-      console.log("[ContentArea] Updating debug view to:", url);
+      console.log("[ContentArea] Updating debug view");
       this.showLoading("Loading tab...");
       this.debugView.src = url;
     }

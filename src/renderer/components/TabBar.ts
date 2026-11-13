@@ -42,22 +42,32 @@ export class TabBar {
   }
 
   private render(): void {
-    this.tabsContainer.innerHTML = this.tabs
-      .map(
-        (tab) => `
-        <div class="tab ${tab.active ? "active" : ""}" data-tab-id="${tab.id}">
-          <img class="tab-favicon" src="${tab.favicon || "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>"}" alt="" onerror="this.style.visibility='hidden'">
-          <span class="tab-title">${this.escapeHtml(tab.title || "New Tab")}</span>
-          <button class="tab-close" data-close-tab="${tab.id}" title="Close tab">
-            <svg width="8" height="8" viewBox="0 0 8 8">
-              <line x1="0" y1="0" x2="8" y2="8" stroke="currentColor" stroke-width="1.5"/>
-              <line x1="8" y1="0" x2="0" y2="8" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </button>
-        </div>
-      `
-      )
-      .join("");
+    this.tabsContainer.replaceChildren(...this.tabs.map((tab) => {
+      const element = document.createElement("div");
+      element.className = `tab ${tab.active ? "active" : ""}`;
+      element.dataset.tabId = tab.id;
+
+      const favicon = document.createElement("img");
+      favicon.className = "tab-favicon";
+      favicon.alt = "";
+      favicon.src = tab.favicon || "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>";
+      favicon.addEventListener("error", () => { favicon.style.visibility = "hidden"; });
+
+      const title = document.createElement("span");
+      title.className = "tab-title";
+      title.textContent = tab.title || "New Tab";
+
+      const close = document.createElement("button");
+      close.className = "tab-close";
+      close.dataset.closeTab = tab.id;
+      close.title = "Close tab";
+      close.innerHTML = `<svg width="8" height="8" viewBox="0 0 8 8">
+        <line x1="0" y1="0" x2="8" y2="8" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="8" y1="0" x2="0" y2="8" stroke="currentColor" stroke-width="1.5"/>
+      </svg>`;
+      element.append(favicon, title, close);
+      return element;
+    }));
 
     // Add click handlers for tabs
     this.tabsContainer.querySelectorAll(".tab").forEach((tabEl) => {
@@ -83,12 +93,6 @@ export class TabBar {
         window.electronAPI.closeTab(tabId);
       });
     });
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   public getTabs(): TabInfo[] {
