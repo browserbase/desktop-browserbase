@@ -148,32 +148,9 @@ export class SessionManager {
 
   private async initializeSession(generation: number): Promise<BrowserbaseSession> {
     try {
-      // Calculate viewport size based on window content area
-      // Chrome UI elements: tab bar (36px), nav bar (40px) = 76px total
-      const windowBounds = this.mainWindow?.getContentBounds();
-      const chromeUIHeight = 76; // 36 (tab bar) + 40 (nav bar)
-
-      // Use actual window size, with reasonable defaults
-      const defaultWidth = 1440;
-      const defaultHeight = 900;
-
-      const contentWidth = windowBounds?.width || defaultWidth;
-      const contentHeight = windowBounds
-        ? Math.max(400, windowBounds.height - chromeUIHeight)
-        : defaultHeight - chromeUIHeight;
-
-      // Store for later use with new tabs
-      this.currentViewportWidth = contentWidth;
-      this.currentViewportHeight = contentHeight;
-
-      // For session creation, use larger viewport to avoid issues - we'll override with CDP later
-      const viewportWidth = Math.max(2560, contentWidth);
-      const viewportHeight = Math.max(1440, contentHeight);
-
-      console.log("Window content bounds:", windowBounds);
-      console.log(`Chrome UI height: ${chromeUIHeight}px`);
-      console.log(`Actual viewport to use: ${contentWidth}x${contentHeight}`);
-      console.log(`Creating session with initial viewport: ${viewportWidth}x${viewportHeight} (will override with CDP)`);
+      // The renderer supplies measured content dimensions before initialization.
+      const viewportWidth = this.currentViewportWidth;
+      const viewportHeight = this.currentViewportHeight;
 
       // Create a Browserbase session with viewport matching our window.
       // BrowserbaseClient waits until the remote browser is RUNNING before
